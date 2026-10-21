@@ -133,3 +133,27 @@ def test_an_unknown_status_is_a_validation_error(
         headers=auth_headers(token),
     )
     assert response.status_code == 422
+
+
+def test_the_list_is_tenant_scoped_and_filterable(
+    client: TestClient, mint: Callable[..., str]
+) -> None:
+    token = mint(_sub())
+    ref = f"ses_{uuid.uuid4().hex}"
+    row = client.post("/v1/fleet/sessions", json=_body(ref), headers=auth_headers(token)).json()
+
+    listed = client.get(
+        "/v1/fleet/sessions",
+        params={"project": "agent-memory-fleet"},
+        headers=auth_headers(token),
+    )
+    other = client.get(
+        "/v1/fleet/sessions",
+        params={"project": "another-project"},
+        headers=auth_headers(token),
+    )
+    foreign = client.get("/v1/fleet/sessions", headers=auth_headers(mint(_sub())))
+
+    assert [r["uuid"] for r in listed.json()] == [row["uuid"]]
+    assert other.json() == []
+    assert foreign.json() == []

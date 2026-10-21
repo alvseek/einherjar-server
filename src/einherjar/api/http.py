@@ -89,6 +89,22 @@ async def create_session(
     return asdict(session)
 
 
+@router.get("/fleet/sessions")
+async def list_sessions(
+    request: Request,
+    project: str | None = None,
+    status: str | None = None,
+    user_id: str = Depends(require_caller),
+) -> list[dict]:
+    """The caller's recorded consults, newest first. Read-only, tenant-scoped."""
+    if status is not None and status not in ("active", "completed", "failed"):
+        raise HTTPException(status_code=422, detail=f"unknown status {status!r}")
+    rows = request.app.state.repository.list_sessions(
+        user_id=user_id, project=project, status=status
+    )
+    return [asdict(row) for row in rows]
+
+
 @router.patch("/fleet/sessions/{session_uuid}")
 async def update_session(
     session_uuid: str,

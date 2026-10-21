@@ -19,7 +19,8 @@ dependencies = [
 ]
 
 [project.scripts]
-einherjar = "einherjar.__main__:main"
+einherjar = "einherjar.cli:main"
+einherjar-server = "einherjar.__main__:main"
 
 [build-system]
 requires = ["uv_build>=0.9.28,<0.10.0"]

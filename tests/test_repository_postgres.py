@@ -101,6 +101,28 @@ def test_completion_stamps_ended_at(repo: FleetRepository) -> None:
     assert done.ended_at is not None
 
 
+def test_a_partial_upsert_keeps_the_stored_metadata(repo: FleetRepository) -> None:
+    user = f"user-{uuid.uuid4().hex}"
+    ref = _ref()
+    first = repo.upsert_session(
+        user_id=user,
+        machine="machine-a",
+        session_ref=ref,
+        platform="opencode",
+        project="proj",
+        domain="backend-django",
+        theme="api review",
+    )
+    second = repo.upsert_session(
+        user_id=user, machine="machine-a", session_ref=ref, platform="opencode"
+    )
+
+    assert second.uuid == first.uuid
+    assert second.project == "proj"
+    assert second.domain == "backend-django"
+    assert second.theme == "api review"
+
+
 def test_an_unknown_status_is_refused(repo: FleetRepository) -> None:
     with pytest.raises(ValueError, match="unknown status"):
         repo.update_session(uuid="whatever", user_id="whoever", status="paused")

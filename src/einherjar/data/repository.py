@@ -155,11 +155,11 @@ class FleetRepository:
                      domain, theme, status)
                 VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, 'active')
                 ON CONFLICT (user_id, machine, session_ref) DO UPDATE SET
-                    project       = EXCLUDED.project,
-                    machine_label = EXCLUDED.machine_label,
+                    project       = COALESCE(EXCLUDED.project, fleet_session.project),
+                    machine_label = COALESCE(EXCLUDED.machine_label, fleet_session.machine_label),
                     platform      = EXCLUDED.platform,
-                    domain        = EXCLUDED.domain,
-                    theme         = EXCLUDED.theme,
+                    domain        = COALESCE(EXCLUDED.domain, fleet_session.domain),
+                    theme         = COALESCE(EXCLUDED.theme, fleet_session.theme),
                     updated_at    = now(),
                     status        = CASE
                         WHEN fleet_session.status IN ('completed', 'failed')

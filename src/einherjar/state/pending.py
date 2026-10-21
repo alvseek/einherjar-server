@@ -11,6 +11,7 @@ dropping it.
 
 from __future__ import annotations
 
+import inspect
 import json
 from pathlib import Path
 from typing import Callable
@@ -62,14 +63,19 @@ class PendingBuffer:
         tmp.write_text(body, encoding="utf-8", newline="\n")
         tmp.replace(self._path)
 
-    def flush(self, send: Callable[[dict], None]) -> int:
-        """Send every buffered row, keep the failures, and preserve anything appended meanwhile."""
+    async def flush(self, send: Callable[[dict], object]) -> int:
+        """Send every buffered row, keep the failures, and preserve anything appended meanwhile.
+
+        ``send`` may be sync or async; the buffer awaits a coroutine and calls a plain callable.
+        """
         records = self.read()
         remaining: list[dict] = []
         sent = 0
         for record in records:
             try:
-                send(record)
+                result = send(record)
+                if inspect.isawaitable(result):
+                    await result
                 sent += 1
             except Exception:  # noqa: BLE001 - a failed send is buffered, not fatal
                 remaining.append(record)

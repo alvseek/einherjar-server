@@ -52,7 +52,7 @@ def test_a_corrupt_line_names_itself(tmp_path: Path) -> None:
         PendingBuffer(path).read()
 
 
-def test_flush_keeps_failures_and_rows_that_arrive_during_it(tmp_path: Path) -> None:
+async def test_flush_keeps_failures_and_rows_that_arrive_during_it(tmp_path: Path) -> None:
     buffer = PendingBuffer(tmp_path / "pending.jsonl")
     buffer.append({"n": 1})
     buffer.append({"n": 2})
@@ -62,7 +62,7 @@ def test_flush_keeps_failures_and_rows_that_arrive_during_it(tmp_path: Path) -> 
             raise RuntimeError("registry down")
         buffer.append({"n": 3})  # a second process appends mid-flush
 
-    sent = buffer.flush(send)
+    sent = await buffer.flush(send)
 
     assert sent == 1
     assert [r["n"] for r in buffer.read()] == [1, 3]

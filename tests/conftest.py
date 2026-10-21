@@ -29,6 +29,12 @@ CONTENT_ROOT = Path(
 )
 
 
+@pytest.fixture(autouse=True)
+def isolated_config(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    """Every test gets its own machine id, token store and pending buffer."""
+    monkeypatch.setenv("EINHERJAR_CONFIG_DIR", str(tmp_path / "config"))
+
+
 @pytest.fixture(scope="session")
 def keypair() -> tuple[bytes, bytes]:
     key = rsa.generate_private_key(public_exponent=65537, key_size=2048)
