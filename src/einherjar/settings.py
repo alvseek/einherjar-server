@@ -13,6 +13,10 @@ DEFAULT_BASE_URL = "https://einherjar.lok.quest"
 DEFAULT_ISSUER = "https://auth.lok.quest"
 DEFAULT_CLIENT_ID = "einherjar-cli"
 DEFAULT_PROJECT_MCP_URL = "https://hermod.lok.quest/mcp"
+#: Logto matches redirect URIs exactly, and a Native app gets no wildcard at all, so the port is
+#: fixed and registered rather than ephemeral. Override it only together with a registration that
+#: names the same string.
+DEFAULT_REDIRECT_URI = "http://127.0.0.1:8123/callback"
 
 
 @dataclass(frozen=True)
@@ -21,6 +25,7 @@ class ClientSettings:
     issuer: str = DEFAULT_ISSUER
     client_id: str = DEFAULT_CLIENT_ID
     project_mcp_url: str = DEFAULT_PROJECT_MCP_URL
+    redirect_uri: str = DEFAULT_REDIRECT_URI
 
     @property
     def resource(self) -> str:
@@ -34,4 +39,5 @@ class ClientSettings:
             issuer=os.getenv("EINHERJAR_ISSUER", DEFAULT_ISSUER),
             client_id=os.getenv("EINHERJAR_CLIENT_ID", DEFAULT_CLIENT_ID),
             project_mcp_url=os.getenv("EINHERJAR_PROJECT_MCP_URL", DEFAULT_PROJECT_MCP_URL),
+            redirect_uri=os.getenv("EINHERJAR_REDIRECT_URI", DEFAULT_REDIRECT_URI),
         )

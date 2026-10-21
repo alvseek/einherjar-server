@@ -406,6 +406,7 @@ async def _main(args: argparse.Namespace) -> int:
             issuer=settings.issuer,
             client_id=settings.client_id,
             resource=settings.resource,
+            redirect_uri=settings.redirect_uri,
             store=store,
         )
         print(f"signed in; token valid until {int(tokens.expires_at)}")

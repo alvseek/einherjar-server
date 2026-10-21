@@ -80,7 +80,13 @@ class LoginFlow:
             def log_message(self, *_args) -> None:
                 pass
 
-        self._server = HTTPServer((host, port), Handler)
+        try:
+            self._server = HTTPServer((host, port), Handler)
+        except OSError as exc:
+            raise LoginError(
+                f"cannot bind {host}:{port} for the sign-in callback ({exc}). "
+                "Close whatever holds the port, or register a different redirect URI."
+            ) from exc
         bound_port = self._server.server_port
         self.redirect_uri = f"http://{host}:{bound_port}/callback"
         self.url = authorize_url(
@@ -136,12 +142,18 @@ async def login(
     client_id: str,
     resource: str,
     store: TokenStore,
+    redirect_uri: str | None = None,
     open_browser=webbrowser.open,
     client: httpx.AsyncClient | None = None,
     timeout: float = 300,
 ) -> Tokens:
     """Complete one sign-in and store the result. One browser step per machine."""
-    flow = LoginFlow(issuer=issuer, client_id=client_id, resource=resource)
+    flow = LoginFlow(
+        issuer=issuer,
+        client_id=client_id,
+        resource=resource,
+        redirect_uri=redirect_uri,
+    )
     url = flow.start()
     try:
         open_browser(url)

@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import socket
 import threading
 import time
 from pathlib import Path
@@ -120,6 +121,22 @@ def _callback(redirect: str, state: str, code: str = "code-1") -> None:
     ).start()
 
 
+def _free_port() -> int:
+    with socket.socket() as sock:
+        sock.bind(("127.0.0.1", 0))
+        return int(sock.getsockname()[1])
+
+
+def test_a_registered_redirect_binds_exactly_that_port() -> None:
+    port = _free_port()
+    redirect = f"http://127.0.0.1:{port}/callback"
+    flow = LoginFlow(issuer=ISSUER, client_id=CLIENT, resource=RESOURCE, redirect_uri=redirect)
+    flow.start()
+
+    assert flow.redirect_uri == redirect
+    flow.close()
+
+
 def test_the_listener_receives_the_code_and_checks_the_state() -> None:
     flow = LoginFlow(issuer=ISSUER, client_id=CLIENT, resource=RESOURCE)
     url = flow.start()
@@ -144,9 +161,12 @@ def test_a_state_mismatch_is_refused() -> None:
 
 async def test_login_completes_end_to_end(tmp_path: Path) -> None:
     store = TokenStore(tmp_path / "credentials.json", use_keyring=False)
+    redirect = f"http://127.0.0.1:{_free_port()}/callback"
+    seen: dict = {}
 
     def fake_browser(url: str) -> None:
         query = parse_qs(urlparse(url).query)
+        seen["redirect_uri"] = query["redirect_uri"][0]
         _callback(query["redirect_uri"][0], query["state"][0])
 
     async with httpx.AsyncClient(transport=_transport()) as client:
@@ -155,10 +175,23 @@ async def test_login_completes_end_to_end(tmp_path: Path) -> None:
             client_id=CLIENT,
             resource=RESOURCE,
             store=store,
+            redirect_uri=redirect,
             open_browser=fake_browser,
             client=client,
             timeout=5,
         )
 
+    assert seen["redirect_uri"] == redirect
     assert tokens.access_token == "access-1"
     assert store.load() is not None
+
+
+def test_the_redirect_default_is_the_registered_loopback_port(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from einherjar.settings import ClientSettings
+
+    assert ClientSettings.load().redirect_uri == "http://127.0.0.1:8123/callback"
+
+    monkeypatch.setenv("EINHERJAR_REDIRECT_URI", "http://127.0.0.1:9000/callback")
+    assert ClientSettings.load().redirect_uri == "http://127.0.0.1:9000/callback"
