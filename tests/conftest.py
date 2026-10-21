@@ -31,8 +31,15 @@ CONTENT_ROOT = Path(
 
 @pytest.fixture(autouse=True)
 def isolated_config(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
-    """Every test gets its own machine id, token store and pending buffer."""
+    """Every test gets its own machine id, token store and pending buffer.
+
+    The platform markers and ``XDG_CONFIG_HOME`` are cleared as well: a suite that reads the
+    developer's environment (this one runs inside OpenCode, CI does not) can pass locally and fail
+    in CI for a reason that has nothing to do with the code.
+    """
     monkeypatch.setenv("EINHERJAR_CONFIG_DIR", str(tmp_path / "config"))
+    for variable in ("EINHERJAR_PLATFORM", "AI_AGENT", "OPENCODE", "XDG_CONFIG_HOME"):
+        monkeypatch.delenv(variable, raising=False)
 
 
 @pytest.fixture(scope="session")

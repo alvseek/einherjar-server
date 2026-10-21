@@ -83,7 +83,8 @@ def test_the_awakening_names_the_served_overlay() -> None:
     assert "Review the API" in text
 
 
-async def test_ask_records_spawns_and_closes() -> None:
+async def test_ask_records_spawns_and_closes(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setenv("EINHERJAR_PLATFORM", "opencode")
     registry, out, err = FakeRegistry(), io.StringIO(), io.StringIO()
 
     code = await ask(
