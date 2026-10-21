@@ -9,19 +9,40 @@ from fastmcp import Client
 from einherjar.api.mcp import build_mcp
 from einherjar.business.queries import FleetQueries
 from einherjar.business.tenant import TenantResolver
+from einherjar.content.loader import ContentLoader
 from einherjar.data.repository import FleetRepository
 
 
-async def test_the_mcp_face_exposes_only_reads() -> None:
+def _fake_content(tmp_path):
+    (tmp_path / "procedures").mkdir()
+    (tmp_path / "procedures" / "ask-agent.md").write_text(
+        "# Ask Agent\n\nAsk a teammate.\n\n$ARGUMENTS\n", encoding="utf-8"
+    )
+    (tmp_path / "templates").mkdir()
+    (tmp_path / "templates" / "fleet-agents-template.md").write_text(
+        "# Roster\n\n| a |\n", encoding="utf-8"
+    )
+    return ContentLoader(tmp_path)
+
+
+async def test_the_mcp_face_exposes_reads_and_content_only(tmp_path) -> None:
     mcp = build_mcp(
         auth=None,
         resolver=TenantResolver(db_url="unused"),
         queries=FleetQueries(FleetRepository(db_url="unused")),
+        content=_fake_content(tmp_path),
     )
     async with Client(mcp) as client:
         tools = await client.list_tools()
 
-    assert {tool.name for tool in tools} == {"fleet_sessions", "fleet_session"}
+    assert {tool.name for tool in tools} == {
+        "fleet_sessions",
+        "fleet_session",
+        "list_procedures",
+        "read_procedure",
+        "list_resources",
+        "read_resource",
+    }
 
 
 def test_queries_never_cross_a_tenant(repository: FleetRepository) -> None:
@@ -40,7 +61,7 @@ def test_queries_never_cross_a_tenant(repository: FleetRepository) -> None:
     assert queries.get_session(user_id=mine, uuid="unknown") is None
 
 
-def test_discovery_is_served_from_the_root_and_mcp_does_not_redirect() -> None:
+def test_discovery_is_served_from_the_root_and_mcp_does_not_redirect(content_root) -> None:
     from fastapi.testclient import TestClient
 
     from einherjar.app import build_app
@@ -57,6 +78,7 @@ def test_discovery_is_served_from_the_root_and_mcp_does_not_redirect() -> None:
         db_url="postgresql://einherjar:secret@127.0.0.1:5432/valaskjalf",
         logto_endpoint="https://auth.example",
         public_base_url="https://einherjar.example",
+        content_root=content_root,
     )
     app = build_app(config, auth=provider, verifier=provider.token_verifier)
 

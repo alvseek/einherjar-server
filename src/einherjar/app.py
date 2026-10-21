@@ -18,7 +18,19 @@ from einherjar.auth.verifier import build_auth
 from einherjar.business.queries import FleetQueries
 from einherjar.business.tenant import TenantResolver
 from einherjar.configuration.config import Config, load_config, validate
+from einherjar.content.loader import ContentLoader
 from einherjar.data.repository import FleetRepository
+
+__all__ = ["ContentUnavailableError", "build_app", "health"]
+
+
+class ContentUnavailableError(RuntimeError):
+    """Raised when the content checkout is absent, so the server would serve nothing.
+
+    Refused rather than degraded: with no source the server still answers ``/health`` and offers
+    its registry tools, which reads exactly like a healthy server. The one thing it must never do
+    is look healthy while serving none of the procedures it exists to serve.
+    """
 
 
 async def health() -> JSONResponse:
@@ -53,8 +65,19 @@ def build_app(
     check = verifier if verifier is not None else getattr(provider, "token_verifier", None)
     resolver = TenantResolver(db_url=config.db_url)
     repo = repository or FleetRepository(db_url=config.db_url)
+    content = ContentLoader(config.content_root)
+    if not content.available():
+        raise ContentUnavailableError(
+            f"no content to serve: {config.content_root} has no procedures/. Clone with "
+            "--recurse-submodules, or point EINHERJAR_CONTENT_ROOT at the fleet checkout."
+        )
 
-    mcp = build_mcp(auth=provider, resolver=resolver, queries=FleetQueries(repo))
+    mcp = build_mcp(
+        auth=provider,
+        resolver=resolver,
+        queries=FleetQueries(repo),
+        content=content,
+    )
     mcp_app = mcp.http_app(path="/")
 
     app = FastAPI(

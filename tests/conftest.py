@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import os
 import time
+from pathlib import Path
 from typing import Callable
 
 import jwt
@@ -20,6 +21,12 @@ from einherjar.data.repository import FleetRepository
 ISSUER = "https://auth.example/oidc"
 RESOURCE = "https://einherjar.example/mcp"
 PG = os.getenv("EINHERJAR_PG_TEST_URL")
+CONTENT_ROOT = Path(
+    os.environ.get(
+        "EINHERJAR_CONTENT_ROOT",
+        str(Path(__file__).resolve().parents[1] / "agent-memory-fleet"),
+    )
+)
 
 
 @pytest.fixture(scope="session")
@@ -68,7 +75,18 @@ def repository() -> FleetRepository:
 
 
 @pytest.fixture()
-def client(keypair: tuple[bytes, bytes], repository: FleetRepository) -> TestClient:
+def content_root() -> Path:
+    if not (CONTENT_ROOT / "procedures").is_dir():
+        pytest.skip(f"no content checkout at {CONTENT_ROOT}")
+    return CONTENT_ROOT
+
+
+@pytest.fixture()
+def client(
+    keypair: tuple[bytes, bytes],
+    repository: FleetRepository,
+    content_root: Path,
+) -> TestClient:
     _, public = keypair
     verifier = JWTVerifier(
         public_key=public,
@@ -80,6 +98,7 @@ def client(keypair: tuple[bytes, bytes], repository: FleetRepository) -> TestCli
         db_url=PG or "",
         logto_endpoint="https://auth.example",
         public_base_url="https://einherjar.example",
+        content_root=content_root,
     )
     app = build_app(
         config,

@@ -16,10 +16,12 @@ from __future__ import annotations
 
 import os
 from dataclasses import dataclass
+from pathlib import Path
 from urllib.parse import urlparse
 
 DEFAULT_PUBLIC_BASE_URL = "http://127.0.0.1:8220"
 DEFAULT_PORT = 8220
+DEFAULT_CONTENT_ROOT = Path("agent-memory-fleet")
 
 _LOOPBACK_HOSTS = {"127.0.0.1", "::1", "localhost"}
 
@@ -40,6 +42,9 @@ class Config:
     # This server's public URL. Tokens bind to it as their audience, so it must match the
     # Resource Indicator registered with the issuer character for character.
     public_base_url: str = DEFAULT_PUBLIC_BASE_URL
+    # The checkout whose procedures and templates this server serves. The submodule path by
+    # default, so a clone with --recurse-submodules works with no configuration.
+    content_root: Path = DEFAULT_CONTENT_ROOT
     # Local mode's second guard, reached only when no issuer is configured. A process bound to
     # 0.0.0.0 with no authentication is open to every network the machine is on, unless the
     # operator states that something in front of it keeps it local.
@@ -63,6 +68,7 @@ def load_config() -> Config:
         db_url=os.getenv("EINHERJAR_DB_URL", ""),
         logto_endpoint=os.getenv("EINHERJAR_LOGTO_ENDPOINT", ""),
         public_base_url=os.getenv("EINHERJAR_PUBLIC_BASE_URL", DEFAULT_PUBLIC_BASE_URL),
+        content_root=Path(os.getenv("EINHERJAR_CONTENT_ROOT", str(DEFAULT_CONTENT_ROOT))),
         local_bind_all=os.getenv("EINHERJAR_LOCAL_BIND_ALL", "").lower() in {"1", "true", "yes"},
     )
 
