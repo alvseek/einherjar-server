@@ -1,4 +1,4 @@
-"""The served content: four procedures, two templates, and the equality that keeps them honest."""
+"""The served content: four procedures, one template, and the equality that keeps them honest."""
 
 from __future__ import annotations
 
@@ -16,7 +16,7 @@ from einherjar.content.loader import ContentLoader
 from einherjar.data.repository import FleetRepository
 
 PROCEDURES = {"ask-agent", "delegate-agent", "load-fleet", "setup-fleet"}
-TEMPLATES = {"fleet-agents-template", "fleet-map-template"}
+TEMPLATES = {"fleet-agents-template"}
 
 
 @pytest.fixture()
