@@ -4,7 +4,6 @@ from __future__ import annotations
 
 import os
 import time
-from types import SimpleNamespace
 from typing import Callable
 
 import jwt
@@ -84,7 +83,8 @@ def client(keypair: tuple[bytes, bytes], repository: FleetRepository) -> TestCli
     )
     app = build_app(
         config,
-        auth=SimpleNamespace(token_verifier=verifier),
+        auth=None,
+        verifier=verifier,
         repository=repository,
     )
     return TestClient(app)
