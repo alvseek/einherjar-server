@@ -11,11 +11,15 @@ from dataclasses import dataclass
 
 DEFAULT_BASE_URL = "https://einherjar.lok.quest"
 DEFAULT_ISSUER = "https://auth.lok.quest"
-DEFAULT_CLIENT_ID = "einherjar-cli"
+#: The id Logto generated for the registered native app "Einherjar CLI". It is generated rather
+#: than chosen, because POST /applications ignores a supplied id, so it is a fact about the
+#: registration and changes only with it (authentra's deploy/add-einherjar-client.py).
+DEFAULT_CLIENT_ID = "gpghr678hhojnw7w4jj55"
 DEFAULT_PROJECT_MCP_URL = "https://hermod.lok.quest/mcp"
-#: Logto matches redirect URIs exactly, and a Native app gets no wildcard at all, so the port is
-#: fixed and registered rather than ephemeral. Override it only together with a registration that
-#: names the same string.
+#: The registered loopback redirect. The tenant accepts any port on 127.0.0.1, but the URI it is
+#: sent still has to match a registration as a string, so this one is fixed and registered rather
+#: than discovered, and a busy port is reported instead of silently taking another. Override it
+#: only together with a registration that names the same string.
 DEFAULT_REDIRECT_URI = "http://127.0.0.1:8123/callback"
 
 
