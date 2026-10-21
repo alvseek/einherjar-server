@@ -1,0 +1,13 @@
+einherjar-server
+Copyright 2026 Alviandi Widiasto (alvseek)
+
+This product - the fleet layer's server: the served procedures, the fleet
+templates and the session registry, together with the CLI that records a
+consult from the machine where the agent runs - is licensed under the Apache
+License, Version 2.0. See the LICENSE file at the root of this repository, or
+http://www.apache.org/licenses/LICENSE-2.0
+
+This repo is one member of the agent-memory family. It vendors
+agent-memory-fleet as its content submodule and composes on top of the
+memory core (agent-memory-system). It is a peer of the coding overlay
+(agent-memory-project) and its server (hermod-server).
