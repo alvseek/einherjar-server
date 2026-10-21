@@ -345,6 +345,8 @@ source = { editable = "." }
 dependencies = [
     { name = "fastapi" },
     { name = "fastmcp" },
+    { name = "httpx" },
+    { name = "keyring" },
     { name = "psycopg", extra = ["binary", "pool"] },
     { name = "uvicorn" },
 ]
@@ -363,6 +365,8 @@ dev = [
 requires-dist = [
     { name = "fastapi", specifier = ">=0.115" },
     { name = "fastmcp", specifier = ">=3.4.6" },
+    { name = "httpx", specifier = ">=0.28.1" },
+    { name = "keyring", specifier = ">=25" },
     { name = "psycopg", extras = ["binary", "pool"], specifier = ">=3.3.6" },
     { name = "uvicorn", specifier = ">=0.52.1" },
 ]
