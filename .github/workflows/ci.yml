@@ -1,0 +1,65 @@
+name: CI
+
+on:
+  push:
+  pull_request:
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    # The store is PostgreSQL and nothing else, so the contract needs a real one: without this
+    # service the store tests skip, and a suite that passes by omission would go green while the
+    # registry was broken.
+    services:
+      postgres:
+        image: postgres:17
+        env:
+          POSTGRES_PASSWORD: postgres
+          POSTGRES_DB: einherjar_test
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd pg_isready
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+    env:
+      EINHERJAR_PG_TEST_URL: postgresql://postgres:postgres@127.0.0.1:5432/einherjar_test
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          # The content face reads the fleet submodule live, so the tests need it materialized.
+          submodules: recursive
+      # setup-uv publishes no floating major tag past v7, so pin the exact release.
+      - uses: astral-sh/setup-uv@v10.0.1
+        with:
+          python-version: "3.12"
+
+      - name: Install deps
+        run: uv sync
+
+      # Munnin owns these tables and the service only reads them; a fresh database in CI has
+      # neither, so create the same shape here or the tenant tests skip and prove nothing.
+      - name: Create the memory tables the service reads
+        run: |
+          uv run python - <<'PY'
+          import os
+          import psycopg
+
+          with psycopg.connect(os.environ["EINHERJAR_PG_TEST_URL"]) as conn, conn.cursor() as cur:
+              cur.execute(
+                  "CREATE TABLE IF NOT EXISTS user_identity ("
+                  "iss text NOT NULL, sub text NOT NULL, user_id text NOT NULL, "
+                  "linked_date text, UNIQUE (iss, sub))"
+              )
+              cur.execute(
+                  "CREATE TABLE IF NOT EXISTS account ("
+                  "user_id text PRIMARY KEY, display_name text, email text, created_date text)"
+              )
+          PY
+
+      - name: Lint
+        run: uv run ruff check
+
+      - name: Test
+        run: uv run pytest -q

@@ -1,0 +1,3 @@
+[submodule "agent-memory-fleet"]
+	path = agent-memory-fleet
+	url = https://github.com/alvseek/agent-memory-fleet.git
