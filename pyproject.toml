@@ -1,7 +1,7 @@
-[project]
+﻿[project]
 name = "einherjar"
-version = "0.1.0"
-description = "Einherjar — the fleet layer's server: served procedures and the session registry."
+version = "0.1.1"
+description = "Einherjar â€” the fleet layer's server: served procedures and the session registry."
 readme = "README.md"
 license = "Apache-2.0"
 license-files = ["LICENSE", "NOTICE"]
