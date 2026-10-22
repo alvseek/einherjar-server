@@ -1,3 +1,3 @@
 """Einherjar â€” the fleet layer's server."""
 
-__version__ = "0.1.3"
+__version__ = "0.1.4"

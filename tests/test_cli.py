@@ -130,7 +130,11 @@ async def test_a_registry_outage_does_not_stop_the_consult(tmp_path: Path) -> No
     )
 
     assert code == 0
-    assert [r["session_ref"] for r in buffer.read()] == [out.getvalue().splitlines()[0]]
+    records = buffer.read()
+    assert records[0]["action"] == "create"
+    assert records[0]["row"]["session_ref"] == out.getvalue().splitlines()[0]
+    assert records[1]["action"] == "close"
+    assert records[1]["status"] == "completed"
     assert "buffered" in err.getvalue()
     assert registry.updated == []
 
@@ -247,9 +251,32 @@ async def test_sessions_prints_the_rows() -> None:
 async def test_sessions_flushes_the_buffer_before_listing(tmp_path: Path) -> None:
     registry, out = FakeRegistry(), io.StringIO()
     buffer = PendingBuffer(tmp_path / "pending.jsonl")
-    buffer.append({"machine": "m", "session_ref": "ses_late", "platform": "opencode"})
+    buffer.append(
+        {
+            "action": "create",
+            "row": {"machine": "m", "session_ref": "ses_late", "platform": "opencode"},
+        }
+    )
 
     await sessions(registry=registry, buffer=buffer, out=out)
 
     assert registry.created[0]["session_ref"] == "ses_late"
+    assert buffer.read() == []
+
+
+async def test_a_buffered_close_replays_as_a_completed_row(tmp_path: Path) -> None:
+    registry, out = FakeRegistry(), io.StringIO()
+    buffer = PendingBuffer(tmp_path / "pending.jsonl")
+    buffer.append(
+        {
+            "action": "close",
+            "row": {"machine": "m", "session_ref": "ses_late", "platform": "opencode"},
+            "status": "completed",
+        }
+    )
+
+    await sessions(registry=registry, buffer=buffer, out=out)
+
+    assert registry.created[0]["session_ref"] == "ses_late"
+    assert registry.updated == [("u-1", "completed", None)]
     assert buffer.read() == []

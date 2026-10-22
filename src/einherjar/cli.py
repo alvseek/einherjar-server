@@ -121,8 +121,24 @@ async def _record(
         return await registry.create_session(row)
     except RegistryError as exc:
         print(f"warning: {exc}; the row is buffered and will be replayed", file=err)
-        buffer.append(row)
+        buffer.append({"action": "create", "row": row})
         return None
+
+
+def _sender(registry: RegistryClient):
+    """The buffered-record sender: create, and close if the turn finished while it was queued."""
+
+    async def send(record: dict) -> None:
+        row = record.get("row", record)
+        created = await registry.create_session(row)
+        if record.get("action") == "close":
+            await registry.update_session(
+                created["uuid"],
+                status=record.get("status", "completed"),
+                error=record.get("error"),
+            )
+
+    return send
 
 
 async def ask(
@@ -145,7 +161,7 @@ async def ask(
     resolved_model = resolve_model(target.platform, model)
 
     try:
-        await buffer.flush(registry.create_session)
+        await buffer.flush(_sender(registry))
     except Exception as exc:  # noqa: BLE001 - a corrupt buffer must not block the consult
         print(f"warning: pending rows were left untouched: {exc}", file=err)
 
@@ -175,17 +191,24 @@ async def ask(
                 )
             except RegistryError as update_error:
                 print(f"warning: could not mark the row failed: {update_error}", file=err)
+        else:
+            buffer.append(
+                {"action": "close", "row": row, "status": "failed", "error": str(exc)[-2000:]}
+            )
         print(f"the turn could not start: {exc}", file=err)
         return 1
 
     if result.returncode != 0:
+        error = (result.stderr or "")[-2000:]
         if stored is not None:
             try:
-                await registry.update_session(
-                    stored["uuid"], status="failed", error=(result.stderr or "")[-2000:]
-                )
+                await registry.update_session(stored["uuid"], status="failed", error=error)
             except RegistryError as exc:
                 print(f"warning: could not mark the row failed: {exc}", file=err)
+        else:
+            buffer.append(
+                {"action": "close", "row": row, "status": "failed", "error": error}
+            )
         print(result.stderr or "the turn failed", file=err)
         return 1
 
@@ -194,6 +217,8 @@ async def ask(
             await registry.update_session(stored["uuid"], status="completed")
         except RegistryError as exc:
             print(f"warning: could not mark the row completed: {exc}", file=err)
+    else:
+        buffer.append({"action": "close", "row": row, "status": "completed"})
 
     print(target.ref, file=out)
     print(result.stdout, end="" if result.stdout.endswith("\n") else "\n", file=out)
@@ -207,13 +232,15 @@ async def wrap_up(
     registry: RegistryClient,
     runner: Runner = run_turn,
     project: str | None = None,
+    buffer: PendingBuffer | None = None,
     out: TextIO = sys.stdout,
     err: TextIO = sys.stderr,
 ) -> int:
     settings = settings or ClientSettings.load()
+    buffer = buffer or PendingBuffer()
     target = resolve_target(ref)
     row = _row(target, project=project or project_name(), theme="wrap-up", domain=None)
-    stored = await _record(registry, PendingBuffer(), row, err)
+    stored = await _record(registry, buffer, row, err)
 
     try:
         result = await asyncio.to_thread(
@@ -228,6 +255,10 @@ async def wrap_up(
                 )
             except RegistryError as update_error:
                 print(f"warning: could not update the row: {update_error}", file=err)
+        else:
+            buffer.append(
+                {"action": "close", "row": row, "status": "failed", "error": str(exc)[-2000:]}
+            )
         print(f"the wrap-up turn could not start: {exc}", file=err)
         return 1
     if stored is not None:
@@ -238,6 +269,14 @@ async def wrap_up(
             )
         except RegistryError as exc:
             print(f"warning: could not update the row: {exc}", file=err)
+    else:
+        buffer.append(
+            {
+                "action": "close",
+                "row": row,
+                "status": "completed" if result.returncode == 0 else "failed",
+            }
+        )
     if result.returncode != 0:
         print(result.stderr or "the wrap-up turn failed", file=err)
         return 1
@@ -256,7 +295,7 @@ async def sessions(
 ) -> int:
     buffer = buffer or PendingBuffer()
     try:
-        await buffer.flush(registry.create_session)
+        await buffer.flush(_sender(registry))
     except Exception as exc:  # noqa: BLE001 - a corrupt buffer is reported, not fatal
         print(f"warning: pending rows were left untouched: {exc}", file=err)
     rows = await registry.list_sessions(project=project, status=status)
@@ -312,7 +351,7 @@ async def delegate(
     resolved_model = resolve_model(target.platform, model)
 
     try:
-        await buffer.flush(registry.create_session)
+        await buffer.flush(_sender(registry))
     except Exception as exc:  # noqa: BLE001
         print(f"warning: pending rows were left untouched: {exc}", file=err)
 
@@ -328,6 +367,7 @@ async def delegate(
     spawn(
         {
             "uuid": stored["uuid"] if stored else None,
+            "row": row,
             "platform": target.platform,
             "mode": target.mode,
             "session_ref": target.ref,
@@ -361,34 +401,46 @@ async def execute_turn(payload_path: Path) -> int:
         prompt=payload["prompt"],
         model=payload.get("model"),
     )
+
+    def client() -> RegistryClient:
+        return RegistryClient(
+            base_url=settings.base_url,
+            store=store,
+            issuer=settings.issuer,
+            client_id=settings.client_id,
+            resource=settings.resource,
+        )
+
+    async def row_uuid() -> str | None:
+        """The row's uuid, creating it if the parent could not reach the registry."""
+        if payload.get("uuid"):
+            return payload["uuid"]
+        if not payload.get("row"):
+            return None
+        try:
+            async with client() as registry:
+                created = await registry.create_session(payload["row"])
+                return created["uuid"]
+        except RegistryError:
+            return None
+
     try:
         result_process = await asyncio.to_thread(run_turn, request)
     except Exception as exc:  # noqa: BLE001 - the detached half must close its own row
-        uuid_ = payload.get("uuid")
+        uuid_ = await row_uuid()
         if uuid_:
             try:
-                async with RegistryClient(
-                    base_url=settings.base_url,
-                    store=store,
-                    issuer=settings.issuer,
-                    client_id=settings.client_id,
-                    resource=settings.resource,
-                ) as registry:
+                async with client() as registry:
                     await registry.update_session(uuid_, status="failed", error=str(exc)[-2000:])
             except RegistryError:
                 pass
         print(f"the turn could not start: {exc}", file=sys.stderr)
         return 1
-    uuid_ = payload.get("uuid")
+
+    uuid_ = await row_uuid()
     if uuid_:
         try:
-            async with RegistryClient(
-                base_url=settings.base_url,
-                store=store,
-                issuer=settings.issuer,
-                client_id=settings.client_id,
-                resource=settings.resource,
-            ) as registry:
+            async with client() as registry:
                 error = None
                 if result_process.returncode != 0:
                     error = (result_process.stderr or "")[-2000:]

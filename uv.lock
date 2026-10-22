@@ -340,7 +340,7 @@ wheels = [
 
 [[package]]
 name = "einherjar"
-version = "0.1.2"
+version = "0.1.4"
 source = { editable = "." }
 dependencies = [
     { name = "fastapi" },
