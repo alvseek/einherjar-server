@@ -17,6 +17,7 @@ from pathlib import Path
 from typing import Callable
 
 from einherjar.settings import ClientSettings
+from einherjar.transport.adapters import resolve_command
 
 FLEET_MANIFEST = ".agent-memory-fleet-manifest"
 OPENCODE_MANIFEST = ".agent-memory-fleet-opencode-manifest"
@@ -47,9 +48,13 @@ def _remove_listed(manifest: Path, base: Path, *, directories: bool) -> int:
     return removed
 
 
-def _run(runner: Callable[..., subprocess.CompletedProcess], argv: list[str]) -> None:
+def _run(
+    runner: Callable[..., subprocess.CompletedProcess],
+    argv: list[str],
+    resolver: Callable[[list[str]], list[str]] = resolve_command,
+) -> None:
     """Run one harness command and refuse to call a failure a registration."""
-    result = runner(argv, check=False, capture_output=True, text=True)
+    result = runner(resolver(argv), check=False, capture_output=True, text=True)
     if getattr(result, "returncode", 0) != 0:
         detail = (getattr(result, "stderr", "") or "").strip()
         raise RuntimeError(f"{' '.join(argv)} failed ({result.returncode}): {detail}")
@@ -61,6 +66,7 @@ def install_for(
     home: Path | None = None,
     settings: ClientSettings | None = None,
     runner: Callable[..., subprocess.CompletedProcess] = subprocess.run,
+    resolver: Callable[[list[str]], list[str]] = resolve_command,
 ) -> str:
     """Register the server for one harness and clear the old markdown install."""
     settings = settings or ClientSettings.load()
@@ -72,6 +78,7 @@ def install_for(
         _run(
             runner,
             ["opencode", "mcp", "add", "einherjar", "--global", "--url", url],
+            resolver,
         )
         removed = _remove_listed(
             base / "skills" / OPENCODE_MANIFEST, base / "skills", directories=True
@@ -86,6 +93,7 @@ def install_for(
         _run(
             runner,
             ["claude", "mcp", "add", "--transport", "http", "einherjar", url, "--scope", "user"],
+            resolver,
         )
         removed = _remove_listed(
             base / "commands" / FLEET_MANIFEST, base / "commands", directories=False

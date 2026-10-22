@@ -36,7 +36,7 @@ def test_opencode_gets_the_server_and_loses_the_old_skills(tmp_path: Path) -> No
     (base / "skills" / OPENCODE_MANIFEST).write_text("agent-fleet-ask-agent\n", encoding="utf-8")
     runner = FakeRunner()
 
-    message = install_for("opencode", home=tmp_path, settings=SETTINGS, runner=runner)
+    message = install_for("opencode", home=tmp_path, settings=SETTINGS, runner=runner, resolver=lambda a: a)
 
     assert runner.calls == [
         [
@@ -61,7 +61,7 @@ def test_claude_gets_the_server_and_loses_the_old_commands(tmp_path: Path) -> No
     (commands / FLEET_MANIFEST).write_text("ask-agent.md\n", encoding="utf-8")
     runner = FakeRunner()
 
-    message = install_for("claude", home=tmp_path, settings=SETTINGS, runner=runner)
+    message = install_for("claude", home=tmp_path, settings=SETTINGS, runner=runner, resolver=lambda a: a)
 
     assert runner.calls[0][:4] == ["claude", "mcp", "add", "--transport"]
     assert "https://einherjar.example/mcp" in runner.calls[0]
@@ -86,7 +86,7 @@ def test_a_failed_registration_is_not_reported_as_success(tmp_path: Path) -> Non
             return subprocess.CompletedProcess(argv, 1, stdout="", stderr="no such command")
 
     with pytest.raises(RuntimeError, match="no such command"):
-        install_for("claude", home=tmp_path, settings=SETTINGS, runner=FailingRunner())
+        install_for("claude", home=tmp_path, settings=SETTINGS, runner=FailingRunner(), resolver=lambda a: a)
 
     # Nothing was removed, because the registration is what failed.
     assert (commands / "ask-agent.md").exists()
