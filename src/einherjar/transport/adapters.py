@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import os
 import re
+import shutil
 import subprocess
 from dataclasses import dataclass
 from typing import Callable, Literal, Mapping
@@ -93,6 +94,23 @@ def argv_for(request: TurnRequest) -> list[str]:
     raise ValueError(f"unknown platform {request.platform!r}: expected 'claude' or 'opencode'")
 
 
+def resolve_command(argv: list[str]) -> list[str]:
+    """The argv to execute, with the platform's real entry point in front.
+
+    On Windows a CLI installed by npm is a `.cmd` shim, and CreateProcess cannot start one directly,
+    so it has to go through ``cmd.exe /c``. ``which`` finds it; passing the bare name does not.
+    """
+    found = shutil.which(argv[0])
+    if found is None:
+        return argv
+    lowered = found.lower()
+    if os.name == "nt" and lowered.endswith((".cmd", ".bat")):
+        return [os.environ.get("COMSPEC", "cmd.exe"), "/c", found, *argv[1:]]
+    if os.name == "nt" and lowered.endswith(".ps1"):
+        return ["powershell", "-NoProfile", "-File", found, *argv[1:]]
+    return [found, *argv[1:]]
+
+
 def run_turn(
     request: TurnRequest,
     *,
@@ -102,4 +120,4 @@ def run_turn(
 
     stdout carries the reply and stderr the platform's progress lines.
     """
-    return runner(argv_for(request), capture_output=True, text=True)
+    return runner(resolve_command(argv_for(request)), capture_output=True, text=True)

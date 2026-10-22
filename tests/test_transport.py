@@ -81,5 +81,25 @@ def test_run_turn_captures_the_reply() -> None:
     result = run_turn(TurnRequest("opencode", "new", "ses_abc", "hello"), runner=runner)
 
     assert result.stdout == "reply\n"
-    assert seen["argv"][0] == "opencode"
+    assert "--session" in seen["argv"]
     assert seen["kwargs"] == {"capture_output": True, "text": True}
+
+
+def test_a_windows_shim_is_run_through_the_command_interpreter(tmp_path) -> None:
+    import os
+    import sys
+
+    from einherjar.transport.adapters import resolve_command
+
+    shim = tmp_path / "opencode.cmd"
+    shim.write_text("@echo off\n", encoding="utf-8")
+
+    resolved = resolve_command([str(shim), "--version"])
+
+    if sys.platform == "win32":
+        assert resolved[0] == os.environ.get("COMSPEC", "cmd.exe")
+        assert resolved[1] == "/c"
+        assert resolved[2] == str(shim)
+    else:
+        # Outside Windows a .cmd is just a file, and the resolver leaves it alone.
+        assert resolved[0] == str(shim)
