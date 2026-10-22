@@ -242,3 +242,14 @@ async def test_sessions_prints_the_rows() -> None:
 
     assert code == 0
     assert "ses_1" in out.getvalue() and "api review" in out.getvalue()
+
+
+async def test_sessions_flushes_the_buffer_before_listing(tmp_path: Path) -> None:
+    registry, out = FakeRegistry(), io.StringIO()
+    buffer = PendingBuffer(tmp_path / "pending.jsonl")
+    buffer.append({"machine": "m", "session_ref": "ses_late", "platform": "opencode"})
+
+    await sessions(registry=registry, buffer=buffer, out=out)
+
+    assert registry.created[0]["session_ref"] == "ses_late"
+    assert buffer.read() == []

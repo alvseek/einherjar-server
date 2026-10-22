@@ -250,8 +250,15 @@ async def sessions(
     registry: RegistryClient,
     project: str | None = None,
     status: str | None = None,
+    buffer: PendingBuffer | None = None,
     out: TextIO = sys.stdout,
+    err: TextIO = sys.stderr,
 ) -> int:
+    buffer = buffer or PendingBuffer()
+    try:
+        await buffer.flush(registry.create_session)
+    except Exception as exc:  # noqa: BLE001 - a corrupt buffer is reported, not fatal
+        print(f"warning: pending rows were left untouched: {exc}", file=err)
     rows = await registry.list_sessions(project=project, status=status)
     if not rows:
         print("no recorded consults", file=out)
