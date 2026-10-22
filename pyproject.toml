@@ -1,4 +1,4 @@
-﻿[project]
+[project]
 name = "einherjar"
 version = "0.1.2"
 description = "Einherjar â€” the fleet layer's server: served procedures and the session registry."

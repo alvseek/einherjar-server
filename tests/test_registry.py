@@ -109,6 +109,17 @@ async def test_a_server_error_surfaces_its_detail(tmp_path: Path) -> None:
             await _client(http, _store(tmp_path)).list_sessions()
 
 
+async def test_an_unreachable_registry_is_a_registry_error(tmp_path: Path) -> None:
+    def handler(request: httpx.Request) -> httpx.Response:
+        raise httpx.ConnectError("no route to host")
+
+    async with httpx.AsyncClient(transport=httpx.MockTransport(handler)) as http:
+        with pytest.raises(RegistryError, match="unreachable"):
+            await _client(http, _store(tmp_path)).create_session(
+                {"machine": "m", "session_ref": "ses_1", "platform": "opencode"}
+            )
+
+
 async def test_the_list_builds_its_query(tmp_path: Path) -> None:
     seen: dict = {}
 

@@ -62,28 +62,36 @@ class RegistryClient:
                 "the session expired and has no refresh token: run `einherjar login`"
             )
         assert self._client is not None
-        refreshed = await refresh_tokens(
-            self._client,
-            issuer=self._issuer,
-            client_id=self._client_id,
-            refresh_token=tokens.refresh_token,
-            resource=self._resource,
-        )
+        try:
+            refreshed = await refresh_tokens(
+                self._client,
+                issuer=self._issuer,
+                client_id=self._client_id,
+                refresh_token=tokens.refresh_token,
+                resource=self._resource,
+            )
+        except httpx.HTTPError as exc:
+            raise RegistryError(f"could not refresh the session: {exc}") from exc
         self._store.save(refreshed)
         return refreshed.access_token
 
     async def _request(self, method: str, path: str, *, json: dict | None = None) -> object:
         assert self._client is not None
         token = await self.access_token()
-        response = await self._client.request(
-            method,
-            f"{self._base}{path}",
-            json=json,
-            headers={
-                "Authorization": f"Bearer {token}",
-                "X-Einherjar-Contract": CONTRACT,
-            },
-        )
+        try:
+            response = await self._client.request(
+                method,
+                f"{self._base}{path}",
+                json=json,
+                headers={
+                    "Authorization": f"Bearer {token}",
+                    "X-Einherjar-Contract": CONTRACT,
+                },
+            )
+        except httpx.HTTPError as exc:
+            # A dead registry is the case the pending buffer exists for; it must arrive as a
+            # RegistryError so the caller buffers instead of crashing.
+            raise RegistryError(f"the registry is unreachable: {exc}") from exc
         if response.status_code == 401:
             raise RegistryError("the registry refused the token: run `einherjar login`")
         if response.status_code >= 400:
