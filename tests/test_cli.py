@@ -62,6 +62,10 @@ def runner_fail(request: TurnRequest) -> subprocess.CompletedProcess:
     return subprocess.CompletedProcess(["turn"], 1, stdout="", stderr="awakening failed\n")
 
 
+def runner_raises(request: TurnRequest) -> subprocess.CompletedProcess:
+    raise OSError("the platform CLI is not on PATH")
+
+
 def test_a_ref_names_its_platform_and_a_name_is_new() -> None:
     assert resolve_target("3f8a2b1c-9d4e-4f7a-8e2b-5c6d9a1b4e7f") == Target(
         "claude", "resume", "3f8a2b1c-9d4e-4f7a-8e2b-5c6d9a1b4e7f"
@@ -148,6 +152,25 @@ async def test_a_failed_turn_closes_its_row_as_failed() -> None:
     assert code == 1
     assert registry.updated[0][1] == "failed"
     assert "awakening failed" in err.getvalue()
+
+
+async def test_a_spawn_that_cannot_start_closes_its_row_failed() -> None:
+    registry, out, err = FakeRegistry(), io.StringIO(), io.StringIO()
+
+    code = await ask(
+        "Backend Django",
+        prompt="Review the API",
+        settings=SETTINGS,
+        registry=registry,
+        project="proj",
+        runner=runner_raises,
+        out=out,
+        err=err,
+    )
+
+    assert code == 1
+    assert registry.updated[0][1] == "failed"
+    assert "could not start" in err.getvalue()
 
 
 async def test_wrap_up_closes_the_row() -> None:

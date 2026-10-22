@@ -165,7 +165,18 @@ async def ask(
         prompt=text,
         model=resolved_model,
     )
-    result = await asyncio.to_thread(runner, request)
+    try:
+        result = await asyncio.to_thread(runner, request)
+    except Exception as exc:  # noqa: BLE001 - a spawn that cannot start must close its row
+        if stored is not None:
+            try:
+                await registry.update_session(
+                    stored["uuid"], status="failed", error=str(exc)[-2000:]
+                )
+            except RegistryError as update_error:
+                print(f"warning: could not mark the row failed: {update_error}", file=err)
+        print(f"the turn could not start: {exc}", file=err)
+        return 1
 
     if result.returncode != 0:
         if stored is not None:
@@ -204,10 +215,21 @@ async def wrap_up(
     row = _row(target, project=project or project_name(), theme="wrap-up", domain=None)
     stored = await _record(registry, PendingBuffer(), row, err)
 
-    result = await asyncio.to_thread(
-        runner,
-        TurnRequest(target.platform, "resume", target.ref, WRAP_PROMPT, None),
-    )
+    try:
+        result = await asyncio.to_thread(
+            runner,
+            TurnRequest(target.platform, "resume", target.ref, WRAP_PROMPT, None),
+        )
+    except Exception as exc:  # noqa: BLE001 - a spawn that cannot start must close its row
+        if stored is not None:
+            try:
+                await registry.update_session(
+                    stored["uuid"], status="failed", error=str(exc)[-2000:]
+                )
+            except RegistryError as update_error:
+                print(f"warning: could not update the row: {update_error}", file=err)
+        print(f"the wrap-up turn could not start: {exc}", file=err)
+        return 1
     if stored is not None:
         try:
             await registry.update_session(
@@ -332,7 +354,24 @@ async def execute_turn(payload_path: Path) -> int:
         prompt=payload["prompt"],
         model=payload.get("model"),
     )
-    result_process = await asyncio.to_thread(run_turn, request)
+    try:
+        result_process = await asyncio.to_thread(run_turn, request)
+    except Exception as exc:  # noqa: BLE001 - the detached half must close its own row
+        uuid_ = payload.get("uuid")
+        if uuid_:
+            try:
+                async with RegistryClient(
+                    base_url=settings.base_url,
+                    store=store,
+                    issuer=settings.issuer,
+                    client_id=settings.client_id,
+                    resource=settings.resource,
+                ) as registry:
+                    await registry.update_session(uuid_, status="failed", error=str(exc)[-2000:])
+            except RegistryError:
+                pass
+        print(f"the turn could not start: {exc}", file=sys.stderr)
+        return 1
     uuid_ = payload.get("uuid")
     if uuid_:
         try:
