@@ -7,6 +7,7 @@ import subprocess
 import pytest
 
 from einherjar.transport.adapters import (
+    OPENCODE_DEFAULT_MODEL,
     TurnRequest,
     argv_for,
     detect_platform,
@@ -68,6 +69,27 @@ def test_model_resolution_is_per_platform() -> None:
     assert resolve_model("opencode", "sonnet", env) == "commandcode/claude-sonnet-5-5"
     # An unmapped alias asks for the platform default rather than a guessed provider.
     assert resolve_model("opencode", "sonnet", {}) is None
+
+
+def test_opencode_names_the_fleet_model_when_none_is_given() -> None:
+    """A spawned run inherits nothing, so the model has to be stated rather than defaulted.
+
+    OpenCode's own default is a free-tier alias that refuses to run outside an OpenCode session,
+    which made every consult fail at the first spawn until the model was passed by hand.
+    """
+    assert resolve_model("opencode", None, {}) == OPENCODE_DEFAULT_MODEL
+
+    argv = argv_for(
+        TurnRequest(
+            "opencode", "new", "ses_abc", "hello", model=resolve_model("opencode", None)
+        )
+    )
+    assert argv[argv.index("--model") + 1] == OPENCODE_DEFAULT_MODEL
+
+
+def test_claude_keeps_its_own_default_model() -> None:
+    assert resolve_model("claude", None, {}) is None
+    assert "--model" not in argv_for(TurnRequest("claude", "new", UUID, "hello"))
 
 
 def test_run_turn_captures_the_reply() -> None:

@@ -52,17 +52,25 @@ def platform_for_ref(ref: str) -> str | None:
     return None
 
 
+#: What an OpenCode turn runs on when the caller names no model. A spawned run has no session to
+#: inherit a model from, and OpenCode's own default is a free-tier alias that refuses to run outside
+#: an OpenCode session, so the fleet's model is written here instead of left to the platform.
+#: ``--model`` and ``EINHERJAR_MODEL_<ALIAS>`` still win.
+OPENCODE_DEFAULT_MODEL = "opencode-go/deepseek-v4.1-flash"
+
+
 def resolve_model(
     platform: str, model: str | None, env: Mapping[str, str] | None = None
 ) -> str | None:
     """A platform's model name, or ``None`` to let the platform default apply.
 
-    Claude takes an alias directly. OpenCode takes ``provider/model``, so a bare alias is looked up
-    in ``EINHERJAR_MODEL_<ALIAS>`` rather than inventing a provider here; an unmapped alias yields
-    no flag instead of a guessed one.
+    Claude takes an alias directly, and its own default is a usable model, so naming none leaves the
+    flag off. OpenCode takes ``provider/model``: a bare alias is looked up in
+    ``EINHERJAR_MODEL_<ALIAS>`` rather than inventing a provider here, an unmapped alias yields no
+    flag instead of a guessed one, and no model at all yields the fleet's own.
     """
     if not model:
-        return None
+        return OPENCODE_DEFAULT_MODEL if platform == "opencode" else None
     if platform == "opencode" and "/" not in model:
         env = os.environ if env is None else env
         variable = "EINHERJAR_MODEL_" + model.upper().replace("-", "_")
