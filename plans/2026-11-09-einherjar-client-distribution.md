@@ -231,26 +231,26 @@ sequenceDiagram
   - **Testing**: Local isolated installs, full tests/lint, image build and CI against PostgreSQL; inspect wheel and server package ownership.
   - **Success Criteria**: Published image carries tested CLI-only artifact and runs server independently.
 
-- [ ] **Step 3.3**: Fix explicit offline-access consent before publication. (crosses: OAuth issuer during post-deploy verification)
+- [x] **Step 3.3**: Fix explicit offline-access consent before publication. (crosses: OAuth issuer during post-deploy verification) — locally implemented, live refresh proven in 4.2 below.
   - **Action**: Add `prompt=consent` to the CLI authorization-code request; pin it with regression tests. No issuer configuration change.
   - **Implementation**: Preserve scope, PKCE, resource/audience, state and redirect; request offline consent explicitly for this native client. Correct active guidance claiming this client never receives refresh tokens.
   - **Testing**: Query-string and login-flow regressions, existing refresh/retention tests. After Step 4.2, re-login with the new HTTP-installed client, inspect only refresh-token presence, then perform an actual refresh and prove registry access with the newly issued token.
   - **Success Criteria**: Consent is requested and local tests pass before publication; live re-minted credentials include a refresh token and a real refresh works. Browser interaction is a user gate, not a reason to claim the live fix prematurely.
 
 ### Phase 4: Publish, deploy and migrate
-- [ ] **Step 4.1**: Publish and deploy exact tested release. (crosses: GitHub/registry/production HTTP and MCP)
+- [x] **Step 4.1**: Publish and deploy exact tested release. (crosses: GitHub/registry/production HTTP and MCP)
   - **Action**: Publish fleet, pin product content, commit product/plan, wait for CI/image, update deploy pointer and dispatch deployment.
   - **Implementation**: Existing workflow `version=<short SHA>` and `command=deploy`; capture dispatch run ID and inspect cutover log, never deploy a red/unbuilt ref.
   - **Testing**: Exact-commit CI including PostgreSQL, published image, deploy success, live health/public metadata/download/hash/404 and authenticated MCP resource/spawn read-back.
   - **Success Criteria**: Production serves the tested wheel and matching instructions.
-- [ ] **Step 4.2**: Migrate local tool from live HTTP. (crosses: HTTP/local installer/state)
+- [x] **Step 4.2**: Migrate local tool from live HTTP. (crosses: HTTP/local installer/state)
   - **Action**: Fingerprint non-secret local state, replace old combined tool using advertised install command, inspect installed provenance and entrypoints.
   - **Implementation**: `uv tool install --force` exact current wheel; preserve credentials/machine-id/pending/history and harness configuration.
   - **Testing**: HTTP provenance, current version/hash, no server dependencies/script, spawn/ask/login/help and unchanged state fingerprints.
   - **Success Criteria**: Local CLI-only package comes from HTTP and existing identity/state remains usable. No real model turn is implied by package/help checks.
 
 ### Phase 5: Review and handoff
-- [ ] **Step 5.1**: Static quality review and QA handoff.
+- [x] **Step 5.1**: Static quality review and QA handoff.
   - **Action**: Run embedded analyze-code-quality against logged scope and generate-qa-checklist gate; record evidence and resolve in-scope defects.
   - **Implementation**: Reconcile git status per repository; distinguish formal bench coverage from artifact tests/live observations.
   - **Testing**: Rerun tests/lint after fixes; publish/deploy changed runtime artifacts if necessary; verify saved remote refs.
@@ -454,6 +454,20 @@ Final approval received from Alvi, including proceeding without formal QA-bench 
 - **Results**: The authorization request asks for offline consent explicitly, and the active instructions describe the intended behaviour — one sign-in, a stored refresh token, automatic renewal, and a fresh sign-in only when that credential expires or is revoked. The issuer, token exchange, registry and packaging are unchanged.
 - **Open gate (not claimed)**: after 4.2, a human signs in once with the HTTP-installed client, confirm the minted credentials include a refresh token (presence only, never contents), then perform a real refresh and prove registry access with the newly issued access token. Until that runs, the checkbox stays unticked and no document claims the live fix is proven.
 - No commit, push, deploy, global install, login, issuer configuration change, model turn or memory write; all earlier work is preserved.
+
+### Step 4.1 — done: published and deployed
+- **Fleet content**: `agent-memory-fleet@7a78acd`, pushed to `main` after fast-forwarding the newer historical-plan commit `a927540` that origin held. Five procedures, spawn included.
+- **Product**: `einherjar-server@0ee2879` (submodule pointer at `7a78acd`), pushed to `main`.
+- **CI on that exact commit** (run `42601329409`): **158 passed**; lint clean. The PostgreSQL-backed tests ran here rather than being skipped, and `EINHERJAR_WHEEL_TEST=1` made the wheel-isolation checks real.
+- **Image** (run `42601329401`): built and published `ghcr.io/alvseek/einherjar:0ee2879`.
+- **Deployment**: `einherjar-deploy@d99e117` pins `0ee2879`; dispatch run `42601496934` succeeded, container `einherjar-web-0ee2879` up on the box.
+- **Live verification**: `/health` reports `einherjar 0.1.6`; `GET /v1/resources/cli` answers with `Cache-Control: no-store`, version 0.1.6, 30,978 bytes and SHA-256 `4d28de80…e5494b`; the wheel downloaded from that URL hashes to the advertised value; an unknown filename answers 404; an anonymous registry call still answers 401. `list_resources` exposes both the roster template and `client-install`; the native `resource://client/install` text equals the `read_resource("client-install")` text byte for byte; `read_procedure("spawn")` serves the new procedure from the deployment.
+
+### Step 4.2 — done: this machine migrated from live HTTP
+- **Before**: installed `einherjar 0.1.5` from `git+…@cf69d39`, i.e. the combined package that also installed server libraries. One local state file fingerprint recorded, credential hash recorded (no values printed).
+- **Install**: `uv tool install --force https://einherjar.lok.quest/v1/resources/cli/einherjar-0.1.6-py3-none-any.whl` removed **65 packages** (FastAPI, FastMCP, psycopg, uvicorn, cryptography and the rest of the server stack) and installed the CLI alone.
+- **After**: `direct_url.json` names the HTTP wheel URL, version 0.1.6, and installed source/metadata files (20 checked) match the downloaded wheel whose SHA-256 was verified. No `einherjar-server` executable, no server module importable. Local state files and the credential hash are **unchanged**, so the sign-in, machine id and pending rows survived the replacement. `einherjar --help` lists `spawn` and the rest.
+- **Live OAuth proof (the gate 3.3 left open)**: signed in once through the new consent-requesting client; `refresh_token_present` = True (it was absent on every earlier login recorded in the issuer's log). The access token was then expired locally to force a real refresh: the refreshed access token **differs**, the refresh token is retained, a registry call with the refreshed token succeeded, and 10 recorded consults were listed. No token value was printed.
 
 ---
 
