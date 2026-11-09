@@ -16,8 +16,8 @@ import subprocess
 from pathlib import Path
 from typing import Callable
 
-from einherjar.settings import ClientSettings
-from einherjar.transport.adapters import resolve_command
+from einherjar_cli.settings import ClientSettings
+from einherjar_cli.transport.adapters import resolve_command
 
 FLEET_MANIFEST = ".agent-memory-fleet-manifest"
 OPENCODE_MANIFEST = ".agent-memory-fleet-opencode-manifest"

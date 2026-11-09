@@ -7,9 +7,9 @@ from pathlib import Path
 
 import pytest
 
-from einherjar.state.machine import MachineIdentityError, machine_id
-from einherjar.state.paths import config_dir, pending_file
-from einherjar.state.pending import PendingBuffer, PendingCorruptError
+from einherjar_cli.state.machine import MachineIdentityError, machine_id
+from einherjar_cli.state.paths import config_dir, pending_file
+from einherjar_cli.state.pending import PendingBuffer, PendingCorruptError
 
 
 def test_the_config_dir_can_be_overridden(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:

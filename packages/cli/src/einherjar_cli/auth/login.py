@@ -15,8 +15,8 @@ from urllib.parse import parse_qs, urlparse
 
 import httpx
 
-from einherjar.auth.pkce import authorize_url, code_challenge, code_verifier, exchange_code
-from einherjar.auth.tokens import Tokens, TokenStore
+from einherjar_cli.auth.pkce import authorize_url, code_challenge, code_verifier, exchange_code
+from einherjar_cli.auth.tokens import Tokens, TokenStore
 
 _PAGE = (
     "<html><body style='font-family: sans-serif; padding: 2rem'>"

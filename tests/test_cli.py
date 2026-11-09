@@ -8,7 +8,7 @@ from pathlib import Path
 
 import pytest
 
-from einherjar.cli import (
+from einherjar_cli.cli import (
     WRAP_PROMPT,
     Target,
     ask,
@@ -18,10 +18,10 @@ from einherjar.cli import (
     sessions,
     wrap_up,
 )
-from einherjar.registry.client import RegistryError
-from einherjar.settings import ClientSettings
-from einherjar.state.pending import PendingBuffer
-from einherjar.transport.adapters import TurnRequest
+from einherjar_cli.registry.client import RegistryError
+from einherjar_cli.settings import ClientSettings
+from einherjar_cli.state.pending import PendingBuffer
+from einherjar_cli.transport.adapters import TurnRequest
 
 SETTINGS = ClientSettings(
     base_url="https://einherjar.example",

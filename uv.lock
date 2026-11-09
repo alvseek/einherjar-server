@@ -7,6 +7,12 @@ resolution-markers = [
     "python_full_version < '3.14'",
 ]
 
+[manifest]
+members = [
+    "einherjar",
+    "einherjar-server",
+]
+
 [[package]]
 name = "aiofile"
 version = "3.12.3"
@@ -340,13 +346,26 @@ wheels = [
 
 [[package]]
 name = "einherjar"
-version = "0.1.5"
+version = "0.1.6"
+source = { editable = "packages/cli" }
+dependencies = [
+    { name = "httpx" },
+    { name = "keyring" },
+]
+
+[package.metadata]
+requires-dist = [
+    { name = "httpx", specifier = ">=0.28.1" },
+    { name = "keyring", specifier = ">=25" },
+]
+
+[[package]]
+name = "einherjar-server"
+version = "0.1.6"
 source = { editable = "." }
 dependencies = [
     { name = "fastapi" },
     { name = "fastmcp" },
-    { name = "httpx" },
-    { name = "keyring" },
     { name = "psycopg", extra = ["binary", "pool"] },
     { name = "uvicorn" },
 ]
@@ -354,6 +373,7 @@ dependencies = [
 [package.dev-dependencies]
 dev = [
     { name = "cryptography" },
+    { name = "einherjar" },
     { name = "httpx" },
     { name = "pyjwt" },
     { name = "pytest" },
@@ -365,8 +385,6 @@ dev = [
 requires-dist = [
     { name = "fastapi", specifier = ">=0.115" },
     { name = "fastmcp", specifier = ">=3.4.6" },
-    { name = "httpx", specifier = ">=0.28.1" },
-    { name = "keyring", specifier = ">=25" },
     { name = "psycopg", extras = ["binary", "pool"], specifier = ">=3.3.6" },
     { name = "uvicorn", specifier = ">=0.52.1" },
 ]
@@ -374,6 +392,7 @@ requires-dist = [
 [package.metadata.requires-dev]
 dev = [
     { name = "cryptography", specifier = ">=43" },
+    { name = "einherjar", editable = "packages/cli" },
     { name = "httpx", specifier = ">=0.28.1" },
     { name = "pyjwt", specifier = ">=2.10" },
     { name = "pytest", specifier = ">=9.1.1" },

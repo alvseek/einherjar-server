@@ -1,7 +1,7 @@
 [project]
-name = "einherjar"
-version = "0.1.5"
-description = "Einherjar â€” the fleet layer's server: served procedures and the session registry."
+name = "einherjar-server"
+version = "0.1.6"
+description = "Einherjar — the fleet layer's server: served procedures and the session registry."
 readme = "README.md"
 license = "Apache-2.0"
 license-files = ["LICENSE", "NOTICE"]
@@ -12,23 +12,35 @@ requires-python = ">=3.12"
 dependencies = [
     "fastapi>=0.115",
     "fastmcp>=3.4.6",
-    "httpx>=0.28.1",
-    "keyring>=25",
     "psycopg[binary,pool]>=3.3.6",
     "uvicorn>=0.52.1",
 ]
 
 [project.scripts]
-einherjar = "einherjar.cli:main"
 einherjar-server = "einherjar.__main__:main"
 
 [build-system]
 requires = ["uv_build>=0.9.28,<0.10.0"]
 build-backend = "uv_build"
 
+# The distribution is `einherjar-server` but the import package stays `einherjar`: that name is
+# what the service's own modules import, and the client now owns `einherjar_cli` instead.
+[tool.uv.build-backend]
+module-name = "einherjar"
+module-root = "src"
+
+# The client is a workspace member so one lockfile and one development environment serve both
+# packages. It is a development dependency only: the server never imports it and never ships it.
+[tool.uv.workspace]
+members = ["packages/cli"]
+
+[tool.uv.sources]
+einherjar = { workspace = true }
+
 [dependency-groups]
 dev = [
     "cryptography>=43",
+    "einherjar",
     "httpx>=0.28.1",
     "pyjwt>=2.10",
     "pytest>=9.1.1",
@@ -42,6 +54,11 @@ target-version = "py312"
 
 [tool.ruff.lint]
 select = ["E", "F", "I"]
+
+# Both packages live outside ruff's default `src` detection for the client workspace member, and a
+# namespace is first-party by definition here: it is this repository's code, not a dependency.
+[tool.ruff.lint.isort]
+known-first-party = ["einherjar", "einherjar_cli"]
 
 [tool.pytest.ini_options]
 asyncio_mode = "auto"

@@ -12,7 +12,7 @@ import socket
 import uuid
 from pathlib import Path
 
-from einherjar.state.paths import machine_id_file
+from einherjar_cli.state.paths import machine_id_file
 
 _UUID = re.compile(
     r"^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$"

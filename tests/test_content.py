@@ -1,4 +1,4 @@
-"""The served content: four procedures, one template, and the equality that keeps them honest."""
+"""The served content: five procedures, one template, and the equality that keeps them honest."""
 
 from __future__ import annotations
 
@@ -9,13 +9,13 @@ from pathlib import Path
 import pytest
 from fastmcp import Client
 
-from einherjar.api.mcp import build_mcp
+from einherjar.api.mcp import CLIENT_INSTALL_URI, build_mcp
 from einherjar.business.queries import FleetQueries
 from einherjar.business.tenant import TenantResolver
 from einherjar.content.loader import ContentLoader
 from einherjar.data.repository import FleetRepository
 
-PROCEDURES = {"ask-agent", "delegate-agent", "load-fleet", "setup-fleet"}
+PROCEDURES = {"ask-agent", "delegate-agent", "load-fleet", "setup-fleet", "spawn"}
 TEMPLATES = {"fleet-agents-template"}
 
 
@@ -57,6 +57,15 @@ def test_an_argument_fills_the_slot(loader: ContentLoader) -> None:
     assert "agent-memory-fleet" in text
 
 
+def test_spawn_is_served_and_says_it_does_not_awaken(loader: ContentLoader) -> None:
+    """The served form is the one an agent reads, so the boundary itself is asserted here."""
+    text = loader.get_procedure("spawn")
+    assert "no awakening" in text
+    assert "einherjar spawn --prompt" in text
+    assert "resource://client/install" in text
+    assert "git+https://github.com" not in text
+
+
 async def test_prompts_prompts_and_tools_are_the_same_content(loader: ContentLoader) -> None:
     mcp = build_mcp(
         auth=None,
@@ -71,7 +80,10 @@ async def test_prompts_prompts_and_tools_are_the_same_content(loader: ContentLoa
         missing = await client.call_tool("read_procedure", {"name": "nope"})
 
     assert {p.name for p in prompts} == PROCEDURES
-    assert {str(r.uri) for r in resources} == {f"resource://templates/{name}" for name in TEMPLATES}
+    # The fleet's templates plus the one resource that is not fleet content: the client install.
+    assert {str(r.uri) for r in resources} == {
+        f"resource://templates/{name}" for name in TEMPLATES
+    } | {CLIENT_INSTALL_URI}
     assert read.data["served"] is True
     assert "Ask Agent" in read.data["content"]
     assert missing.data["served"] is False

@@ -8,9 +8,9 @@ from pathlib import Path
 
 import pytest
 
-from einherjar.cli import _main, ask, build_parser, delegate, spawn
-from einherjar.state.pending import PendingBuffer
-from einherjar.transport.adapters import TurnRequest, argv_for, platform_for_ref
+from einherjar_cli.cli import _main, ask, build_parser, delegate, spawn
+from einherjar_cli.state.pending import PendingBuffer
+from einherjar_cli.transport.adapters import TurnRequest, argv_for, platform_for_ref
 from tests.test_cli import SETTINGS, DownRegistry, FakeRegistry
 
 
@@ -183,7 +183,7 @@ async def test_spawn_cli_dispatches_options(
     background: bool,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    from einherjar import cli
+    from einherjar_cli import cli
 
     class RegistryContext:
         def __init__(self, **kwargs):

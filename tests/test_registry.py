@@ -9,8 +9,8 @@ from pathlib import Path
 import httpx
 import pytest
 
-from einherjar.auth.tokens import Tokens, TokenStore
-from einherjar.registry.client import RegistryClient, RegistryError
+from einherjar_cli.auth.tokens import Tokens, TokenStore
+from einherjar_cli.registry.client import RegistryClient, RegistryError
 
 BASE = "https://einherjar.example"
 ISSUER = "https://auth.example"

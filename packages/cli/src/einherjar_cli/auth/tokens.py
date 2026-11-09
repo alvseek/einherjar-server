@@ -17,7 +17,7 @@ import time
 from dataclasses import dataclass
 from pathlib import Path
 
-from einherjar.state.paths import token_file
+from einherjar_cli.state.paths import token_file
 
 _log = logging.getLogger("einherjar.auth.tokens")
 

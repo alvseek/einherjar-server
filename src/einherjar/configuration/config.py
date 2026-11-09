@@ -22,6 +22,10 @@ from urllib.parse import urlparse
 DEFAULT_PUBLIC_BASE_URL = "http://127.0.0.1:8220"
 DEFAULT_PORT = 8220
 DEFAULT_CONTENT_ROOT = Path("agent-memory-fleet")
+#: Where the client wheel the server hands out is built. `dist/` is the local build directory;
+#: the image injects an absolute path in the same place. A missing directory breaks only the
+#: download routes, never the rest of the server.
+DEFAULT_CLI_DIST_DIR = Path("dist")
 
 _LOOPBACK_HOSTS = {"127.0.0.1", "::1", "localhost"}
 
@@ -45,6 +49,9 @@ class Config:
     # The checkout whose procedures and templates this server serves. The submodule path by
     # default, so a clone with --recurse-submodules works with no configuration.
     content_root: Path = DEFAULT_CONTENT_ROOT
+    # The directory holding the one client wheel this server offers for download. Discovery reads
+    # the artifact's own metadata; nothing here assumes the CLI version equals the server's.
+    cli_dist_dir: Path = DEFAULT_CLI_DIST_DIR
     # Local mode's second guard, reached only when no issuer is configured. A process bound to
     # 0.0.0.0 with no authentication is open to every network the machine is on, unless the
     # operator states that something in front of it keeps it local.
@@ -69,6 +76,7 @@ def load_config() -> Config:
         logto_endpoint=os.getenv("EINHERJAR_LOGTO_ENDPOINT", ""),
         public_base_url=os.getenv("EINHERJAR_PUBLIC_BASE_URL", DEFAULT_PUBLIC_BASE_URL),
         content_root=Path(os.getenv("EINHERJAR_CONTENT_ROOT", str(DEFAULT_CONTENT_ROOT))),
+        cli_dist_dir=Path(os.getenv("EINHERJAR_CLI_DIST_DIR", str(DEFAULT_CLI_DIST_DIR))),
         local_bind_all=os.getenv("EINHERJAR_LOCAL_BIND_ALL", "").lower() in {"1", "true", "yes"},
     )
 

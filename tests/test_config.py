@@ -2,11 +2,17 @@
 
 from __future__ import annotations
 
+from pathlib import Path
+
 import pytest
 
 from einherjar.configuration.config import Config, load_config, validate
 
 DSN = "postgresql://einherjar:secret@127.0.0.1:5432/valaskjalf"
+
+
+def test_the_artifact_directory_defaults_to_the_local_build_directory() -> None:
+    assert Config(db_url=DSN).cli_dist_dir == Path("dist")
 
 
 def test_a_missing_dsn_is_refused() -> None:
@@ -55,6 +61,7 @@ def test_env_overrides_are_read(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setenv("EINHERJAR_PORT", "9000")
     monkeypatch.setenv("EINHERJAR_PUBLIC_BASE_URL", "https://einherjar.lok.quest")
     monkeypatch.setenv("EINHERJAR_LOGTO_ENDPOINT", "https://auth.lok.quest")
+    monkeypatch.setenv("EINHERJAR_CLI_DIST_DIR", "/srv/einherjar/dist")
 
     config = load_config()
 
@@ -62,3 +69,4 @@ def test_env_overrides_are_read(monkeypatch: pytest.MonkeyPatch) -> None:
     assert config.port == 9000
     assert config.public_base_url == "https://einherjar.lok.quest"
     assert config.logto_endpoint == "https://auth.lok.quest"
+    assert config.cli_dist_dir == Path("/srv/einherjar/dist")

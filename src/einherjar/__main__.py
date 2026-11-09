@@ -1,12 +1,11 @@
-"""The process entry point.
+"""The process entry point: always the server.
 
-With no arguments it is the server: the container starts it that way. With arguments it is the
-CLI, so `python -m einherjar _turn <payload>` (what a delegated turn spawns) reaches the client.
+The client is its own distribution (``einherjar_cli``), so this module has nothing to dispatch to:
+``python -m einherjar`` runs the service and nothing else. An agent that spawns a turn starts the
+CLI's module instead, which never imports anything from here.
 """
 
 from __future__ import annotations
-
-import sys
 
 import uvicorn
 
@@ -15,11 +14,6 @@ from einherjar.configuration.config import load_config
 
 
 def main() -> None:
-    if len(sys.argv) > 1:
-        from einherjar.cli import main as cli_main
-
-        cli_main()
-        return
     config = load_config()
     uvicorn.run(build_app(config), host=config.host, port=config.port)
 

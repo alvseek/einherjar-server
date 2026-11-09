@@ -8,8 +8,8 @@ from pathlib import Path
 
 import pytest
 
-from einherjar.install.harness import FLEET_MANIFEST, OPENCODE_MANIFEST, install_for
-from einherjar.settings import ClientSettings
+from einherjar_cli.install.harness import FLEET_MANIFEST, OPENCODE_MANIFEST, install_for
+from einherjar_cli.settings import ClientSettings
 
 SETTINGS = ClientSettings(
     base_url="https://einherjar.example",
@@ -104,7 +104,7 @@ def test_a_failed_registration_is_not_reported_as_success(tmp_path: Path) -> Non
 
 def test_the_cli_has_a_help_screen() -> None:
     result = subprocess.run(
-        [sys.executable, "-m", "einherjar", "--help"],
+        [sys.executable, "-m", "einherjar_cli", "--help"],
         capture_output=True,
         text=True,
         timeout=60,

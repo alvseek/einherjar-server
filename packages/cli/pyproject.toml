@@ -1,0 +1,28 @@
+[project]
+name = "einherjar"
+version = "0.1.6"
+description = "Einherjar — the local client: sign in, spawn a session, and record the consult."
+readme = "README.md"
+license = "Apache-2.0"
+license-files = ["LICENSE", "NOTICE"]
+authors = [
+    { name = "Alviandi Widiasto", email = "alviandi@msn.com" }
+]
+requires-python = ">=3.12"
+dependencies = [
+    "httpx>=0.28.1",
+    "keyring>=25",
+]
+
+[project.scripts]
+einherjar = "einherjar_cli.cli:main"
+
+[build-system]
+requires = ["uv_build>=0.9.28,<0.10.0"]
+build-backend = "uv_build"
+
+# The distribution is `einherjar` because that is the command people already have installed; the
+# import package is `einherjar_cli` so it cannot be confused with the server's `einherjar`.
+[tool.uv.build-backend]
+module-name = "einherjar_cli"
+module-root = "src"

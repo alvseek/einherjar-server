@@ -11,15 +11,15 @@ from urllib.parse import parse_qs, urlparse
 import httpx
 import pytest
 
-from einherjar.auth.login import LoginError, LoginFlow, login
-from einherjar.auth.pkce import (
+from einherjar_cli.auth.login import LoginError, LoginFlow, login
+from einherjar_cli.auth.pkce import (
     authorize_url,
     code_challenge,
     code_verifier,
     exchange_code,
     refresh_tokens,
 )
-from einherjar.auth.tokens import Tokens, TokenStore
+from einherjar_cli.auth.tokens import Tokens, TokenStore
 
 ISSUER = "https://auth.example"
 CLIENT = "einherjar-cli"
@@ -62,6 +62,33 @@ def test_the_authorization_url_names_the_resource() -> None:
     assert query["resource"] == [RESOURCE]
     assert query["code_challenge_method"] == ["S256"]
     assert query["client_id"] == [CLIENT]
+
+
+def test_offline_access_is_requested_with_explicit_consent() -> None:
+    """The issuer drops `offline_access` unless consent is explicit, so no refresh token arrives.
+
+    Regression: the authorization request used to ask for `offline_access` and then silently reuse
+    an existing browser session. Logto's scope check removed the scope, the exchange returned an
+    access token only, and every machine had to sign in again once its hour ran out.
+    """
+    url = authorize_url(
+        issuer=ISSUER,
+        client_id=CLIENT,
+        redirect_uri="http://127.0.0.1:9999/callback",
+        state="state-1",
+        challenge="challenge-1",
+        resource=RESOURCE,
+    )
+    query = parse_qs(urlparse(url).query)
+
+    assert query["prompt"] == ["consent"]
+    assert "offline_access" in query["scope"][0].split()
+    # Everything the flow already relied on survives the extra parameter.
+    assert query["code_challenge"] == ["challenge-1"]
+    assert query["code_challenge_method"] == ["S256"]
+    assert query["state"] == ["state-1"]
+    assert query["resource"] == [RESOURCE]
+    assert query["redirect_uri"] == ["http://127.0.0.1:9999/callback"]
 
 
 async def test_the_code_is_exchanged_for_tokens() -> None:
@@ -147,6 +174,9 @@ def test_the_listener_receives_the_code_and_checks_the_state() -> None:
 
     query = parse_qs(urlparse(url).query)
     assert query["state"] == [flow.state]
+    # The flow's own request must carry the consent prompt, not only a hand-built authorize_url.
+    assert query["prompt"] == ["consent"]
+    assert "offline_access" in query["scope"][0].split()
 
 
 def test_a_state_mismatch_is_refused() -> None:
@@ -189,7 +219,7 @@ async def test_login_completes_end_to_end(tmp_path: Path) -> None:
 def test_the_redirect_default_is_the_registered_loopback_port(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    from einherjar.settings import ClientSettings
+    from einherjar_cli.settings import ClientSettings
 
     assert ClientSettings.load().redirect_uri == "http://127.0.0.1:8123/callback"
 

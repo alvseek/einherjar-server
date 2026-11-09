@@ -13,8 +13,8 @@ from __future__ import annotations
 
 import httpx
 
-from einherjar.auth.pkce import refresh_tokens
-from einherjar.auth.tokens import TokenStore
+from einherjar_cli.auth.pkce import refresh_tokens
+from einherjar_cli.auth.tokens import TokenStore
 
 CONTRACT = "1"
 

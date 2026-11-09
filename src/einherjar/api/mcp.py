@@ -1,9 +1,14 @@
-"""The MCP face: the served fleet content, and read-only registry tools.
+"""The MCP face: the served fleet content, how to install the CLI, and read-only registry tools.
 
 Every procedure is served two ways. A **prompt** is what a person invokes by name; a
 ``read_procedure`` **tool** is what an agent can open mid-task, which is the only path that works on
 a client that turns prompts into commands. Templates are resources, so a procedure never points at
 a local clone.
+
+``resource://client/install`` is the one resource that is not fleet content: it is how a machine
+gets the CLI, written from the wheel this server actually serves. It is registered whether or not
+the content checkout is present, and its text is generated per read so it never describes a wheel
+the running server would not hand out.
 
 No registry write exists on this face. A consult is recorded by the CLI on the machine that owns
 the spawn; this face exists so an agent can read what has been recorded, not claim a row.
@@ -12,19 +17,29 @@ the spawn; this face exists so an agent can read what has been recorded, not cla
 from __future__ import annotations
 
 import inspect
+from pathlib import Path
 from typing import Any, Callable
 
 from fastmcp import FastMCP
 
 from einherjar.business.queries import FleetQueries
 from einherjar.business.tenant import TenantResolver
+from einherjar.configuration.config import DEFAULT_CLI_DIST_DIR, DEFAULT_PUBLIC_BASE_URL
 from einherjar.content.loader import ContentLoader
+from einherjar.distribution.install import client_install_text
 
 INSTRUCTIONS = (
     "Einherjar serves the fleet layer. Read a procedure with read_procedure(name) and follow it. "
     "The registry tools are read-only: a consult is recorded by the einherjar CLI on the machine "
     "where the agent runs."
 )
+
+#: The stable discovery point for installing the local client. It is served natively and through
+#: the template tools, so an agent reaches it whichever primitive its client exposes.
+CLIENT_INSTALL_URI = "resource://client/install"
+CLIENT_INSTALL_NAME = "client-install"
+CLIENT_INSTALL_TITLE = "Install the Einherjar CLI"
+CLIENT_INSTALL_MIME = "text/markdown"
 
 _READ = {"readOnlyHint": True, "openWorldHint": False}
 
@@ -38,8 +53,10 @@ def _not_served(kind: str, name: str, listing: str) -> dict[str, Any]:
     }
 
 
-def _register_content(mcp: FastMCP, content: ContentLoader) -> None:
-    """Register procedures as prompts and tools, templates as resources."""
+def _register_content(
+    mcp: FastMCP, content: ContentLoader, install_text: Callable[[], str]
+) -> None:
+    """Register procedures as prompts and tools, templates and the install guide as resources."""
 
     def _make_prompt(procedure: str) -> Callable[..., str]:
         # FastMCP derives a prompt's arguments from the function signature, so the parameter must
@@ -115,7 +132,7 @@ def _register_content(mcp: FastMCP, content: ContentLoader) -> None:
 
     @mcp.tool(title="List served templates", annotations=_READ)
     def list_resources() -> list[dict[str, str]]:
-        """List the templates this server serves."""
+        """List the templates this server serves, plus how to install the CLI."""
         return [
             {
                 "name": name,
@@ -123,16 +140,48 @@ def _register_content(mcp: FastMCP, content: ContentLoader) -> None:
                 "uri": f"resource://templates/{name}",
             }
             for name in content.list_resources()
+        ] + [
+            {
+                "name": CLIENT_INSTALL_NAME,
+                "title": CLIENT_INSTALL_TITLE,
+                "uri": CLIENT_INSTALL_URI,
+            }
         ]
 
     @mcp.tool(title="Read a served template", annotations=_READ)
     def read_resource(name: str) -> dict[str, Any]:
-        """Read a served template verbatim. An unknown name returns served=false."""
+        """Read a served template verbatim, or the CLI installation instructions.
+
+        An unknown name returns served=false.
+        """
+        if name == CLIENT_INSTALL_NAME:
+            return {"served": True, "name": name, "content": install_text()}
         try:
             text = content.get_resource(name)
         except KeyError:
             return _not_served("template", name, "list_resources()")
         return {"served": True, "name": name, "content": text}
+
+
+def _register_client_install(mcp: FastMCP, install_text: Callable[[], str]) -> None:
+    """The install resource exists even when there is no artifact: its text then says so.
+
+    Registered outside the content face on purpose. It describes how to get the client, not the
+    fleet's procedures, so it must not disappear when the content checkout is missing.
+    """
+
+    def fn() -> str:
+        return install_text()
+
+    fn.__name__ = "client_install"
+    fn.__doc__ = "How to install or upgrade the local Einherjar CLI on this machine."
+    mcp.resource(
+        CLIENT_INSTALL_URI,
+        name=CLIENT_INSTALL_NAME,
+        title=CLIENT_INSTALL_TITLE,
+        mime_type=CLIENT_INSTALL_MIME,
+        annotations={"audience": ["assistant", "user"], "priority": 0.5},
+    )(fn)
 
 
 def build_mcp(
@@ -141,11 +190,19 @@ def build_mcp(
     resolver: TenantResolver,
     queries: FleetQueries,
     content: ContentLoader,
+    cli_dist_dir: Path | str = DEFAULT_CLI_DIST_DIR,
+    public_base_url: str = DEFAULT_PUBLIC_BASE_URL,
 ) -> FastMCP:
     mcp = FastMCP(name="einherjar", instructions=INSTRUCTIONS, auth=auth)
 
+    def install_text() -> str:
+        """Read the artifact on every call, so a wheel added after boot is described correctly."""
+        return client_install_text(public_base_url, cli_dist_dir)
+
+    _register_client_install(mcp, install_text)
+
     if content.available():
-        _register_content(mcp, content)
+        _register_content(mcp, content, install_text)
 
     @mcp.tool(title="The caller's recorded consults", annotations=_READ)
     def fleet_sessions(project: str | None = None, status: str | None = None) -> list[dict]:

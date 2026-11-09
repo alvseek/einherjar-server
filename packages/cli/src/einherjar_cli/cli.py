@@ -18,14 +18,14 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Callable, TextIO
 
-from einherjar.auth.login import login as run_login
-from einherjar.auth.tokens import TokenStore
-from einherjar.registry.client import RegistryClient, RegistryError
-from einherjar.settings import ClientSettings
-from einherjar.state.machine import machine_id, machine_label
-from einherjar.state.paths import config_dir
-from einherjar.state.pending import PendingBuffer
-from einherjar.transport.adapters import (
+from einherjar_cli.auth.login import login as run_login
+from einherjar_cli.auth.tokens import TokenStore
+from einherjar_cli.registry.client import RegistryClient, RegistryError
+from einherjar_cli.settings import ClientSettings
+from einherjar_cli.state.machine import machine_id, machine_label
+from einherjar_cli.state.paths import config_dir
+from einherjar_cli.state.pending import PendingBuffer
+from einherjar_cli.transport.adapters import (
     Mode,
     TurnRequest,
     detect_platform,
@@ -351,7 +351,7 @@ def _spawn_detached(payload: dict, ref: str) -> Path:
     output_path = directory / f"{ref}.out"
     with output_path.open("a", encoding="utf-8", newline="\n") as handle:
         subprocess.Popen(
-            [sys.executable, "-m", "einherjar", "_turn", str(payload_path)],
+            [sys.executable, "-m", "einherjar_cli", "_turn", str(payload_path)],
             stdout=handle,
             stderr=subprocess.STDOUT,
             start_new_session=True,
@@ -611,7 +611,7 @@ async def _main(args: argparse.Namespace) -> int:
         return 0
 
     if args.command == "install":
-        from einherjar.install.harness import install_for
+        from einherjar_cli.install.harness import install_for
 
         print(install_for(args.harness))
         return 0

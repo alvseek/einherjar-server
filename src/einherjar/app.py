@@ -14,6 +14,7 @@ from einherjar import __version__
 from einherjar.api.http import router
 from einherjar.api.mcp import build_mcp
 from einherjar.api.paths import MCP_MOUNT_PATH, NormaliseMcpPath
+from einherjar.api.resources import router as resources_router
 from einherjar.auth.verifier import build_auth
 from einherjar.business.queries import FleetQueries
 from einherjar.business.tenant import TenantResolver
@@ -77,6 +78,8 @@ def build_app(
         resolver=resolver,
         queries=FleetQueries(repo),
         content=content,
+        cli_dist_dir=config.cli_dist_dir,
+        public_base_url=config.public_base_url,
     )
     mcp_app = mcp.http_app(path="/")
 
@@ -91,9 +94,13 @@ def build_app(
     app.state.verifier = check
     app.state.resolver = resolver
     app.state.repository = repo
+    app.state.mcp = mcp
 
     app.add_api_route("/health", health, methods=["GET"])
     app.include_router(router, prefix="/v1")
+    # The download face sits beside the registry's write face and is public: the CLI must be
+    # installable before a machine can hold a token. Nothing in it reads the store.
+    app.include_router(resources_router, prefix="/v1")
     app.mount(MCP_MOUNT_PATH, mcp_app)
 
     # Discovery, served from the root. FastMCP advertises root-level metadata URLs and puts its own

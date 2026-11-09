@@ -1,9 +1,29 @@
+# Local environments and generated caches. A nested one would be copied over the environment the
+# build creates for itself, so both the root and the nested forms are excluded.
 .venv
+**/.venv
+__pycache__
+**/__pycache__
+*.pyc
+**/*.pyc
+.pytest_cache
+**/.pytest_cache
+.ruff_cache
+**/.ruff_cache
+
+# Version control and CI configuration: the build reads the working tree, not its history.
 .git
 .github
-.pytest_cache
-.ruff_cache
-__pycache__
-*.pyc
+
+# Build output. The image builds its own wheel into EINHERJAR_CLI_DIST_DIR, so a stale one in the
+# context would only be a second artifact the reader would refuse.
+dist
+**/dist
+*.whl
+**/*.whl
+agent-memory-fleet/output
+
+# Tests and local-only material are not part of the running service.
 tests
+plans
 .env

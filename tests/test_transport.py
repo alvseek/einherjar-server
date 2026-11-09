@@ -6,7 +6,7 @@ import subprocess
 
 import pytest
 
-from einherjar.transport.adapters import (
+from einherjar_cli.transport.adapters import (
     OPENCODE_DEFAULT_MODEL,
     TurnRequest,
     argv_for,
@@ -111,7 +111,7 @@ def test_a_windows_shim_is_run_through_the_command_interpreter(tmp_path) -> None
     import os
     import sys
 
-    from einherjar.transport.adapters import resolve_command
+    from einherjar_cli.transport.adapters import resolve_command
 
     shim = tmp_path / "opencode.cmd"
     shim.write_text("@echo off\n", encoding="utf-8")

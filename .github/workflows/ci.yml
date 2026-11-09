@@ -25,6 +25,10 @@ jobs:
           --health-retries 10
     env:
       EINHERJAR_PG_TEST_URL: postgresql://postgres:postgres@127.0.0.1:5432/einherjar_test
+      # The packaging tests build both wheels and install each into a clean virtual environment.
+      # Without this they skip, and a suite that skipped the one check proving runtime isolation
+      # would go green while the packages shared a dependency again.
+      EINHERJAR_WHEEL_TEST: "1"
     steps:
       - uses: actions/checkout@v7
         with:

@@ -16,7 +16,7 @@ import json
 from pathlib import Path
 from typing import Callable
 
-from einherjar.state.paths import pending_file
+from einherjar_cli.state.paths import pending_file
 
 
 class PendingCorruptError(RuntimeError):

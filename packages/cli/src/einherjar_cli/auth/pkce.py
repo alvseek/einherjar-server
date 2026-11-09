@@ -14,7 +14,7 @@ from urllib.parse import urlencode
 
 import httpx
 
-from einherjar.auth.tokens import Tokens
+from einherjar_cli.auth.tokens import Tokens
 
 DEFAULT_SCOPES = "openid profile email offline_access"
 
@@ -52,6 +52,12 @@ def authorize_url(
         # The resource binds the token's audience to the fleet's MCP identifier, so the same token
         # is accepted by the MCP face and by the CLI's HTTP calls.
         "resource": resource,
+        # Consent is what makes `offline_access` real. Logto's scope check drops that scope unless
+        # the request asks for consent (or the client already holds a grant), so a silent reuse of
+        # an existing browser session yields an access token with no refresh token — and a machine
+        # that then has to sign in again every time that hour runs out. Asking once is the whole
+        # fix, and it is explicit rather than implied.
+        "prompt": "consent",
     }
     return f"{issuer.rstrip('/')}/oidc/auth?{urlencode(params)}"
 
