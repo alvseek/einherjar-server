@@ -92,9 +92,9 @@ def awaken_prompt(domain: str, prompt: str, settings: ClientSettings) -> str:
 
 
 def _turn_prompt(target: Target, domain: str | None, prompt: str, settings: ClientSettings) -> str:
-    """A new session awakens first; a resume receives the request as it stands."""
-    if target.mode == "new":
-        return awaken_prompt(domain or "specialist", prompt, settings)
+    """Only a new, named fleet agent awakens; anonymous sessions and resumes do not."""
+    if target.mode == "new" and domain is not None:
+        return awaken_prompt(domain, prompt, settings)
     return prompt
 
 
@@ -155,9 +155,39 @@ async def ask(
     out: TextIO = sys.stdout,
     err: TextIO = sys.stderr,
 ) -> int:
+    return await _ask(
+        resolve_target(target_text),
+        domain_of(target_text),
+        prompt=prompt,
+        theme=theme,
+        model=model,
+        settings=settings,
+        registry=registry,
+        buffer=buffer,
+        runner=runner,
+        project=project,
+        out=out,
+        err=err,
+    )
+
+
+async def _ask(
+    target: Target,
+    domain: str | None,
+    *,
+    prompt: str,
+    theme: str = "",
+    model: str | None = None,
+    settings: ClientSettings | None = None,
+    registry: RegistryClient,
+    buffer: PendingBuffer | None = None,
+    runner: Runner = run_turn,
+    project: str | None = None,
+    out: TextIO = sys.stdout,
+    err: TextIO = sys.stderr,
+) -> int:
     settings = settings or ClientSettings.load()
     buffer = buffer or PendingBuffer()
-    target = resolve_target(target_text)
     resolved_model = resolve_model(target.platform, model)
 
     try:
@@ -169,7 +199,7 @@ async def ask(
         target,
         project=project or project_name(),
         theme=theme,
-        domain=domain_of(target_text),
+        domain=domain,
     )
     stored = await _record(registry, buffer, row, err)
 
@@ -206,9 +236,7 @@ async def ask(
             except RegistryError as exc:
                 print(f"warning: could not mark the row failed: {exc}", file=err)
         else:
-            buffer.append(
-                {"action": "close", "row": row, "status": "failed", "error": error}
-            )
+            buffer.append({"action": "close", "row": row, "status": "failed", "error": error})
         print(result.stderr or "the turn failed", file=err)
         return 1
 
@@ -345,9 +373,39 @@ async def delegate(
     out: TextIO = sys.stdout,
     err: TextIO = sys.stderr,
 ) -> int:
+    return await _delegate(
+        resolve_target(target_text),
+        domain_of(target_text),
+        prompt=prompt,
+        theme=theme,
+        model=model,
+        settings=settings,
+        registry=registry,
+        buffer=buffer,
+        project=project,
+        spawn=spawn,
+        out=out,
+        err=err,
+    )
+
+
+async def _delegate(
+    target: Target,
+    domain: str | None,
+    *,
+    prompt: str,
+    theme: str = "",
+    model: str | None = None,
+    settings: ClientSettings | None = None,
+    registry: RegistryClient,
+    buffer: PendingBuffer | None = None,
+    project: str | None = None,
+    spawn=_spawn_detached,
+    out: TextIO = sys.stdout,
+    err: TextIO = sys.stderr,
+) -> int:
     settings = settings or ClientSettings.load()
     buffer = buffer or PendingBuffer()
-    target = resolve_target(target_text)
     resolved_model = resolve_model(target.platform, model)
 
     try:
@@ -359,7 +417,7 @@ async def delegate(
         target,
         project=project or project_name(),
         theme=theme,
-        domain=domain_of(target_text),
+        domain=domain,
     )
     stored = await _record(registry, buffer, row, err)
     text = _turn_prompt(target, row["domain"], prompt, settings)
@@ -378,6 +436,40 @@ async def delegate(
     )
     print(target.ref, file=out)
     return 0
+
+
+async def spawn(
+    *,
+    prompt: str,
+    background: bool = False,
+    theme: str = "",
+    model: str | None = None,
+    settings: ClientSettings | None = None,
+    registry: RegistryClient,
+    buffer: PendingBuffer | None = None,
+    project: str | None = None,
+    runner: Runner = run_turn,
+    spawn_detached=_spawn_detached,
+    out: TextIO = sys.stdout,
+    err: TextIO = sys.stderr,
+) -> int:
+    """Start a fresh anonymous session, without the fleet awakening instruction."""
+    platform = detect_platform()
+    target = Target(platform, "new", new_session_ref(platform))
+    options = dict(
+        prompt=prompt,
+        theme=theme,
+        model=model,
+        settings=settings,
+        registry=registry,
+        buffer=buffer,
+        project=project,
+        out=out,
+        err=err,
+    )
+    if background:
+        return await _delegate(target, None, spawn=spawn_detached, **options)
+    return await _ask(target, None, runner=runner, **options)
 
 
 async def result(ref: str, *, out: TextIO = sys.stdout, err: TextIO = sys.stderr) -> int:
@@ -477,6 +569,14 @@ def build_parser() -> argparse.ArgumentParser:
     delegate_p.add_argument("--theme", default="")
     delegate_p.add_argument("--model", default=None)
 
+    spawn_p = sub.add_parser("spawn", help="start a fresh session without fleet awakening")
+    spawn_p.add_argument("--prompt", required=True)
+    spawn_p.add_argument("--theme", default="")
+    spawn_p.add_argument("--model", default=None)
+    spawn_p.add_argument(
+        "--background", action="store_true", help="return the session ref immediately"
+    )
+
     result_p = sub.add_parser("result", help="read a delegated turn's output")
     result_p.add_argument("ref")
 
@@ -529,6 +629,15 @@ async def _main(args: argparse.Namespace) -> int:
         client_id=settings.client_id,
         resource=settings.resource,
     ) as registry:
+        if args.command == "spawn":
+            return await spawn(
+                prompt=args.prompt,
+                background=args.background,
+                theme=args.theme,
+                model=args.model,
+                settings=settings,
+                registry=registry,
+            )
         if args.command == "ask":
             return await ask(
                 args.target,
@@ -550,9 +659,7 @@ async def _main(args: argparse.Namespace) -> int:
         if args.command == "wrap-up":
             return await wrap_up(args.ref, settings=settings, registry=registry)
         if args.command == "sessions":
-            return await sessions(
-                registry=registry, project=args.project, status=args.status
-            )
+            return await sessions(registry=registry, project=args.project, status=args.status)
     return 1
 
 

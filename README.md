@@ -24,9 +24,41 @@ uv run python -m einherjar        # 127.0.0.1:8220
 
 `/health` answers on the same process. With no issuer configured the server is local by construction: it binds loopback, asks nobody to log in, and refuses to start if the bind or the public URL says something else could reach it.
 
-## Status
+## Using the CLI
 
-Scaffold: config guard, health route and the app shape. The content face, the store and the CLI are being built against the [plan](https://github.com/alvseek/agent-memory-fleet/blob/main/plans/2026-10-20-agent-memory-fleet-fleet-delivery.md).
+Install the client from source and sign in to the registry:
+
+```sh
+uv tool install git+https://github.com/alvseek/einherjar-server
+einherjar login
+```
+
+`ask <agent-name>` starts a new session and instructs it to awaken as that fleet agent.
+`delegate <agent-name>` does the same in the background. To start a fresh session without
+fleet awakening or an agent name, use `spawn`:
+
+```sh
+einherjar spawn --prompt "Review this diff"
+einherjar spawn --background --prompt "Review this diff"
+```
+
+By default, `spawn` waits and prints the session reference followed by the reply.
+With `--background`, it returns the reference immediately; use `einherjar result <session-ref>`
+to read the captured output. Both forms support `--model` and `--theme`, and use the same
+platform selection and registry tracking as `ask` and `delegate`. Spawned sessions have no
+fleet domain. Skipping awakening does not remove the platform's system instructions,
+project rules, or configured integrations, and does not prevent an agent from loading
+memory if its prompt or other instructions request it.
+
+Continue any session with `einherjar ask <session-ref> --prompt "Continue the review"`.
+OpenCode references start with `ses_`; Claude Code references are UUIDs. Passing a reference
+resumes that conversation without adding an awakening instruction; passing an agent name
+always creates a new session. Session history must remain available on the originating
+machine and platform.
+
+`einherjar sessions` lists recorded turns. A successful process exit marks a turn
+`completed`; it does not prove memory was saved. For an awakened fleet agent, request
+memory saving explicitly with `einherjar wrap-up <session-ref>`.
 
 ## License
 
