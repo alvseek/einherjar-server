@@ -1,6 +1,6 @@
 [project]
 name = "einherjar-server"
-version = "0.1.6"
+version = "0.1.7"
 description = "Einherjar — the fleet layer's server: served procedures and the session registry."
 readme = "README.md"
 license = "Apache-2.0"
