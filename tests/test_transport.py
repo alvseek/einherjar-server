@@ -2,14 +2,17 @@
 
 from __future__ import annotations
 
+import json
 import subprocess
 
 import pytest
 
 from einherjar_cli.transport.adapters import (
     OPENCODE_DEFAULT_MODEL,
+    PlatformError,
     TurnRequest,
     argv_for,
+    create_session,
     detect_platform,
     platform_for_ref,
     resolve_model,
@@ -80,9 +83,7 @@ def test_opencode_names_the_fleet_model_when_none_is_given() -> None:
     assert resolve_model("opencode", None, {}) == OPENCODE_DEFAULT_MODEL
 
     argv = argv_for(
-        TurnRequest(
-            "opencode", "new", "ses_abc", "hello", model=resolve_model("opencode", None)
-        )
+        TurnRequest("opencode", "new", "ses_abc", "hello", model=resolve_model("opencode", None))
     )
     assert argv[argv.index("--model") + 1] == OPENCODE_DEFAULT_MODEL
 
@@ -125,3 +126,51 @@ def test_a_windows_shim_is_run_through_the_command_interpreter(tmp_path) -> None
     else:
         # Outside Windows a .cmd is just a file, and the resolver leaves it alone.
         assert resolved[0] == str(shim)
+
+
+def _capture(run_result: subprocess.CompletedProcess):
+    seen: dict = {}
+
+    def runner(argv, **kwargs):
+        seen["argv"] = argv
+        seen["kwargs"] = kwargs
+        return run_result
+
+    return seen, runner
+
+
+def test_create_session_asks_the_platform_for_the_minted_id() -> None:
+    """The ref has to exist before it is printed, and the directory is what places it."""
+    seen, runner = _capture(subprocess.CompletedProcess([], 0, stdout='{"data":{}}', stderr=""))
+
+    create_session("ses_abc", directory="C:/work/proj", title="api review", runner=runner)
+
+    argv = seen["argv"]
+    assert ["api", "post", "/api/session"] == argv[argv.index("api") :][:3]
+    body = json.loads(argv[argv.index("--data") + 1])
+    assert body == {
+        "id": "ses_abc",
+        "title": "api review",
+        "location": {"directory": "C:/work/proj"},
+    }
+    assert seen["kwargs"] == {"capture_output": True, "text": True}
+
+
+def test_create_session_omits_an_absent_title() -> None:
+    seen, runner = _capture(subprocess.CompletedProcess([], 0, stdout="{}", stderr=""))
+
+    create_session("ses_abc", directory="/tmp", runner=runner)
+
+    body = json.loads(seen["argv"][seen["argv"].index("--data") + 1])
+    assert "title" not in body
+    assert body["location"] == {"directory": "/tmp"}
+
+
+def test_create_session_fails_loudly_when_the_platform_refuses() -> None:
+    """A ref that is not real must never reach a caller, so this raises instead of warning."""
+    _, runner = _capture(
+        subprocess.CompletedProcess([], 1, stdout="", stderr="Error: Session not found")
+    )
+
+    with pytest.raises(PlatformError, match="would not create session ses_abc"):
+        create_session("ses_abc", directory="/tmp", runner=runner)

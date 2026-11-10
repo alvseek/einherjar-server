@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import io
+import os
 import subprocess
 from pathlib import Path
 
@@ -15,13 +16,15 @@ from einherjar_cli.cli import (
     awaken_prompt,
     delegate,
     resolve_target,
+    result,
     sessions,
     wrap_up,
+    write_answer,
 )
 from einherjar_cli.registry.client import RegistryError
 from einherjar_cli.settings import ClientSettings
 from einherjar_cli.state.pending import PendingBuffer
-from einherjar_cli.transport.adapters import TurnRequest
+from einherjar_cli.transport.adapters import PlatformError, TurnRequest
 
 SETTINGS = ClientSettings(
     base_url="https://einherjar.example",
@@ -280,3 +283,200 @@ async def test_a_buffered_close_replays_as_a_completed_row(tmp_path: Path) -> No
     assert registry.created[0]["session_ref"] == "ses_late"
     assert registry.updated == [("u-1", "completed", None)]
     assert buffer.read() == []
+
+
+async def test_a_foreground_turn_writes_its_log_and_prints_an_envelope(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """One file, and the shape the caller reads: ref, metadata, then the answer."""
+    monkeypatch.setenv("EINHERJAR_CONFIG_DIR", str(tmp_path))
+    registry, out = FakeRegistry(), io.StringIO()
+
+    code = await ask(
+        "Backend Django",
+        prompt="Review the API",
+        theme="api review",
+        settings=SETTINGS,
+        registry=registry,
+        project="proj",
+        runner=runner_ok,
+        out=out,
+        err=io.StringIO(),
+    )
+
+    assert code == 0
+    text = out.getvalue()
+    ref = text.splitlines()[0]
+    assert ref == registry.created[0]["session_ref"]
+
+    log = tmp_path / "turns" / f"{ref}.out"
+    assert log.read_text(encoding="utf-8") == "hello from the agent\n"
+
+    metadata, answer = text.split("-" * 60, 1)
+    assert "status:     completed" in metadata
+    assert "platform:   claude" in metadata
+    assert f"output:     {log}" in metadata
+    assert "hello from the agent" not in metadata
+    assert answer.lstrip("\n") == "hello from the agent\n"
+
+
+async def test_a_second_turn_appends_to_the_same_log(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """The log is every turn on that ref; the conclusion is only the last one."""
+    monkeypatch.setenv("EINHERJAR_CONFIG_DIR", str(tmp_path))
+    registry = FakeRegistry()
+    ref = "ses_0123456789abcdef0123456789abcdef"
+
+    for _ in range(2):
+        await ask(
+            ref,
+            prompt="again",
+            settings=SETTINGS,
+            registry=registry,
+            project="proj",
+            runner=runner_ok,
+            out=io.StringIO(),
+            err=io.StringIO(),
+        )
+
+    log = tmp_path / "turns" / f"{ref}.out"
+    assert log.read_text(encoding="utf-8") == "hello from the agent\n" * 2
+
+
+async def test_a_new_opencode_session_is_created_before_it_is_printed(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setenv("EINHERJAR_PLATFORM", "opencode")
+    created: list[tuple] = []
+    monkeypatch.setattr(
+        "einherjar_cli.cli.create_session", lambda ref, **kwargs: created.append((ref, kwargs))
+    )
+    registry = FakeRegistry()
+
+    await ask(
+        "Backend Django",
+        prompt="Review the API",
+        theme="api review",
+        settings=SETTINGS,
+        registry=registry,
+        project="proj",
+        runner=runner_ok,
+        out=io.StringIO(),
+        err=io.StringIO(),
+    )
+
+    assert created == [
+        (
+            registry.created[0]["session_ref"],
+            {"directory": os.getcwd(), "title": "api review"},
+        )
+    ]
+
+
+async def test_a_resume_and_a_claude_turn_create_nothing(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """A resume must not create, and Claude's own ``--session-id`` already does."""
+    created: list[str] = []
+    monkeypatch.setattr("einherjar_cli.cli.create_session", lambda ref, **k: created.append(ref))
+
+    await ask(
+        "ses_abc",
+        prompt="again",
+        settings=SETTINGS,
+        registry=FakeRegistry(),
+        project="proj",
+        runner=runner_ok,
+        out=io.StringIO(),
+        err=io.StringIO(),
+    )
+    await ask(
+        "Backend Django",
+        prompt="Review the API",
+        settings=SETTINGS,
+        registry=FakeRegistry(),
+        project="proj",
+        runner=runner_ok,
+        out=io.StringIO(),
+        err=io.StringIO(),
+    )
+
+    assert created == []
+
+
+async def test_a_refused_create_closes_the_row_without_starting_a_turn(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setenv("EINHERJAR_PLATFORM", "opencode")
+
+    def refuse(ref: str, **kwargs) -> None:
+        raise PlatformError("the platform would not create session")
+
+    monkeypatch.setattr("einherjar_cli.cli.create_session", refuse)
+    registry, err = FakeRegistry(), io.StringIO()
+    ran: list[TurnRequest] = []
+
+    code = await ask(
+        "Backend Django",
+        prompt="Review the API",
+        settings=SETTINGS,
+        registry=registry,
+        project="proj",
+        runner=ran.append,
+        out=io.StringIO(),
+        err=err,
+    )
+
+    assert code == 1
+    assert ran == []
+    assert registry.updated[0][1] == "failed"
+    assert "could not start" in err.getvalue()
+
+
+async def test_result_prefers_the_envelope_and_falls_back_to_the_log(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setenv("EINHERJAR_CONFIG_DIR", str(tmp_path))
+    turns = tmp_path / "turns"
+    turns.mkdir(parents=True)
+    (turns / "ses_bg.result.md").write_text("envelope body\n", encoding="utf-8")
+    (turns / "ses_bg.out").write_text("log body\n", encoding="utf-8")
+    (turns / "ses_fg.out").write_text("foreground log\n", encoding="utf-8")
+
+    out = io.StringIO()
+    assert await result("ses_bg", out=out, err=io.StringIO()) == 0
+    assert out.getvalue() == "envelope body\n"
+
+    # A foreground ref has no envelope, and saying "no recorded output" would be false.
+    out = io.StringIO()
+    assert await result("ses_fg", out=out, err=io.StringIO()) == 0
+    assert out.getvalue() == "foreground log\n"
+
+    out = io.StringIO()
+    assert await result("ses_bg", full=True, out=out, err=io.StringIO()) == 0
+    assert out.getvalue() == "log body\n"
+
+    err = io.StringIO()
+    assert await result("ses_missing", out=io.StringIO(), err=err) == 1
+    assert "no recorded output for ses_missing" in err.getvalue()
+
+
+def test_the_answer_reaches_the_log_byte_for_byte(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Text mode would make one log CRLF and the other LF, for the same reply."""
+    raw = io.BytesIO()
+
+    class Captured:
+        buffer = raw
+
+        def write(self, text: str) -> None:
+            raise AssertionError("write_answer must use the byte layer when it exists")
+
+        def flush(self) -> None:
+            raise AssertionError("write_answer must use the byte layer when it exists")
+
+    monkeypatch.setattr("einherjar_cli.cli.sys.stdout", Captured())
+
+    write_answer("line one\nline two\n")
+
+    assert raw.getvalue() == b"line one\nline two\n"

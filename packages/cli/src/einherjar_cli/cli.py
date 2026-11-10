@@ -15,6 +15,7 @@ import subprocess
 import sys
 import uuid
 from dataclasses import dataclass
+from datetime import datetime, timezone
 from pathlib import Path
 from typing import Callable, TextIO
 
@@ -28,6 +29,7 @@ from einherjar_cli.state.pending import PendingBuffer
 from einherjar_cli.transport.adapters import (
     Mode,
     TurnRequest,
+    create_session,
     detect_platform,
     platform_for_ref,
     resolve_model,
@@ -96,6 +98,16 @@ def _turn_prompt(target: Target, domain: str | None, prompt: str, settings: Clie
     if target.mode == "new" and domain is not None:
         return awaken_prompt(domain, prompt, settings)
     return prompt
+
+
+def ensure_session(target: Target, title: str) -> None:
+    """A new session has to exist before its ref is printed.
+
+    Claude creates one from ``--session-id``, so only OpenCode needs asking; a resume must never
+    create anything, because the ref it carries is meant to name an existing conversation.
+    """
+    if target.platform == "opencode" and target.mode == "new":
+        create_session(target.ref, directory=os.getcwd(), title=title or None)
 
 
 def _row(target: Target, *, project: str, theme: str, domain: str | None) -> dict:
@@ -211,7 +223,9 @@ async def _ask(
         prompt=text,
         model=resolved_model,
     )
+    started = datetime.now(timezone.utc).astimezone()
     try:
+        await asyncio.to_thread(ensure_session, target, theme)
         result = await asyncio.to_thread(runner, request)
     except Exception as exc:  # noqa: BLE001 - a spawn that cannot start must close its row
         if stored is not None:
@@ -248,8 +262,22 @@ async def _ask(
     else:
         buffer.append({"action": "close", "row": row, "status": "completed"})
 
+    output = append_reply(target.ref, result.stdout)
+    finished = datetime.now(timezone.utc).astimezone()
     print(target.ref, file=out)
-    print(result.stdout, end="" if result.stdout.endswith("\n") else "\n", file=out)
+    print(
+        envelope(
+            ref=target.ref,
+            platform=target.platform,
+            status="completed",
+            answer=result.stdout,
+            output_path=output,
+            started=started,
+            finished=finished,
+        ),
+        file=out,
+        end="",
+    )
     return 0
 
 
@@ -343,6 +371,73 @@ def turn_dir() -> Path:
     return config_dir() / "turns"
 
 
+SEPARATOR = "-" * 60
+
+
+def log_path(ref: str) -> Path:
+    """The log of every reply this session has produced, in order."""
+    return turn_dir() / f"{ref}.out"
+
+
+def result_path(ref: str) -> Path:
+    """The envelope describing the last turn: metadata, then that turn's reply."""
+    return turn_dir() / f"{ref}.result.md"
+
+
+def append_reply(ref: str, text: str) -> Path:
+    """Add one turn's reply to the session log. A log is appended to; an envelope is replaced."""
+    path = log_path(ref)
+    path.parent.mkdir(parents=True, exist_ok=True)
+    with path.open("a", encoding="utf-8", newline="\n") as handle:
+        handle.write(text)
+    return path
+
+
+def envelope(
+    *,
+    ref: str,
+    platform: str,
+    status: str,
+    answer: str,
+    output_path: Path,
+    started: datetime,
+    finished: datetime | None = None,
+    error: str | None = None,
+) -> str:
+    """What one turn hands back: who it was, how it ended, where the log is, the reply."""
+    head = [
+        f"ref:        {ref}",
+        f"platform:   {platform}",
+        f"status:     {status}",
+        f"bytes:      {len(answer.encode('utf-8')):,}",
+        f"started:    {started.isoformat(timespec='seconds')}",
+    ]
+    if finished is not None:
+        head.append(f"finished:   {finished.isoformat(timespec='seconds')}")
+    head.append(f"output:     {output_path}")
+    if error:
+        head.append(f"error:      {error}")
+    body = answer if answer.endswith("\n") or not answer else answer + "\n"
+    return "\n".join(head) + "\n" + SEPARATOR + "\n" + body
+
+
+def write_answer(text: str) -> None:
+    """Write the reply's own bytes, so the log matches what the envelope counted.
+
+    Text mode would translate every newline to the platform's, which makes one log CRLF when the
+    detached child writes it and LF when a foreground turn appends to it — the same file, two
+    endings, for the same reply.
+    """
+    data = text.encode("utf-8")
+    buffer = getattr(sys.stdout, "buffer", None)
+    if buffer is None:  # a captured stdout with no byte layer
+        sys.stdout.write(data.decode("utf-8"))
+        sys.stdout.flush()
+        return
+    buffer.write(data)
+    buffer.flush()
+
+
 def _spawn_detached(payload: dict, ref: str) -> Path:
     directory = turn_dir()
     directory.mkdir(parents=True, exist_ok=True)
@@ -422,6 +517,24 @@ async def _delegate(
     stored = await _record(registry, buffer, row, err)
     text = _turn_prompt(target, row["domain"], prompt, settings)
 
+    started = datetime.now(timezone.utc).astimezone()
+    try:
+        await asyncio.to_thread(ensure_session, target, theme)
+    except Exception as exc:  # noqa: BLE001 - a ref that is not real must not be handed over
+        if stored is not None:
+            try:
+                await registry.update_session(
+                    stored["uuid"], status="failed", error=str(exc)[-2000:]
+                )
+            except RegistryError as update_error:
+                print(f"warning: could not mark the row failed: {update_error}", file=err)
+        else:
+            buffer.append(
+                {"action": "close", "row": row, "status": "failed", "error": str(exc)[-2000:]}
+            )
+        print(f"the session could not be created: {exc}", file=err)
+        return 1
+
     spawn(
         {
             "uuid": stored["uuid"] if stored else None,
@@ -431,6 +544,7 @@ async def _delegate(
             "session_ref": target.ref,
             "prompt": text,
             "model": resolved_model,
+            "started": started.isoformat(),
         },
         target.ref,
     )
@@ -472,8 +586,24 @@ async def spawn(
     return await _ask(target, None, runner=runner, **options)
 
 
-async def result(ref: str, *, out: TextIO = sys.stdout, err: TextIO = sys.stderr) -> int:
-    path = turn_dir() / f"{ref}.out"
+async def result(
+    ref: str,
+    *,
+    full: bool = False,
+    out: TextIO = sys.stdout,
+    err: TextIO = sys.stderr,
+) -> int:
+    """Print a turn's envelope, or its whole log.
+
+    A background turn writes the envelope; a foreground turn prints it and leaves the log, so a
+    foreground ref answers here rather than claiming nothing was recorded.
+    """
+    envelope_file = result_path(ref)
+    log_file = log_path(ref)
+    if full or not envelope_file.is_file():
+        path = log_file
+    else:
+        path = envelope_file
     if not path.is_file():
         print(f"no recorded output for {ref}", file=err)
         return 1
@@ -530,21 +660,40 @@ async def execute_turn(payload_path: Path) -> int:
         return 1
 
     uuid_ = await row_uuid()
+    status = "completed" if result_process.returncode == 0 else "failed"
+    error_text = None
+    if status == "failed":
+        error_text = (result_process.stderr or "")[-2000:] or None
     if uuid_:
         try:
             async with client() as registry:
-                error = None
-                if result_process.returncode != 0:
-                    error = (result_process.stderr or "")[-2000:]
-                await registry.update_session(
-                    uuid_,
-                    status="completed" if result_process.returncode == 0 else "failed",
-                    error=error,
-                )
+                await registry.update_session(uuid_, status=status, error=error_text)
         except RegistryError:
             pass
-    sys.stdout.write(result_process.stdout or "")
-    sys.stdout.flush()
+
+    started_raw = payload.get("started")
+    started = (
+        datetime.fromisoformat(started_raw)
+        if started_raw
+        else datetime.now(timezone.utc).astimezone()
+    )
+    output = result_path(payload["session_ref"])
+    output.parent.mkdir(parents=True, exist_ok=True)
+    output.write_text(
+        envelope(
+            ref=payload["session_ref"],
+            platform=payload["platform"],
+            status=status,
+            answer=result_process.stdout or "",
+            output_path=log_path(payload["session_ref"]),
+            started=started,
+            finished=datetime.now(timezone.utc).astimezone(),
+            error=error_text,
+        ),
+        encoding="utf-8",
+        newline="\n",
+    )
+    write_answer(result_process.stdout or "")
     return 0 if result_process.returncode == 0 else 1
 
 
@@ -577,8 +726,11 @@ def build_parser() -> argparse.ArgumentParser:
         "--background", action="store_true", help="return the session ref immediately"
     )
 
-    result_p = sub.add_parser("result", help="read a delegated turn's output")
+    result_p = sub.add_parser("result", help="read a turn's envelope or its whole log")
     result_p.add_argument("ref")
+    result_p.add_argument(
+        "--full", action="store_true", help="print the log of every turn instead of the envelope"
+    )
 
     wrap_p = sub.add_parser("wrap-up", help="close a teammate's session")
     wrap_p.add_argument("ref")
@@ -620,7 +772,7 @@ async def _main(args: argparse.Namespace) -> int:
         return await execute_turn(Path(args.payload))
 
     if args.command == "result":
-        return await result(args.ref)
+        return await result(args.ref, full=args.full)
 
     async with RegistryClient(
         base_url=settings.base_url,

@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import io
+import json
 import subprocess
 from pathlib import Path
 
@@ -218,3 +219,71 @@ def test_spawn_requires_a_prompt_and_accepts_no_target() -> None:
         build_parser().parse_args(["spawn"])
     with pytest.raises(SystemExit):
         build_parser().parse_args(["spawn", "software-architect", "--prompt", "Task"])
+
+
+def _detached_payload(tmp_path: Path, ref: str) -> Path:
+    payload = tmp_path / f"{ref}.json"
+    payload.write_text(
+        json.dumps(
+            {
+                "uuid": None,
+                "row": None,
+                "platform": "opencode",
+                "mode": "new",
+                "session_ref": ref,
+                "prompt": "Task",
+                "model": None,
+                "started": "2026-11-10T18:22:41+07:00",
+            }
+        ),
+        encoding="utf-8",
+    )
+    return payload
+
+
+async def test_the_detached_half_writes_the_envelope(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """The child's stdout becomes the log by redirection, so it writes only the envelope."""
+    from einherjar_cli import cli
+
+    monkeypatch.setenv("EINHERJAR_CONFIG_DIR", str(tmp_path))
+    monkeypatch.setattr(cli, "TokenStore", lambda: object())
+    monkeypatch.setattr(
+        cli,
+        "run_turn",
+        lambda request: subprocess.CompletedProcess([], 0, stdout="built it\n", stderr=""),
+    )
+    ref = "ses_0123456789abcdef0123456789abcdef"
+
+    assert await cli.execute_turn(_detached_payload(tmp_path, ref)) == 0
+
+    text = (tmp_path / "turns" / f"{ref}.result.md").read_text(encoding="utf-8")
+    assert "status:     completed" in text
+    assert "started:    2026-11-10T18:22:41+07:00" in text
+    assert f"output:     {tmp_path / 'turns' / (ref + '.out')}" in text
+    assert text.split("-" * 60, 1)[1].lstrip("\n") == "built it\n"
+    # The log is the parent's redirect, so the child must not write it a second time.
+    assert not (tmp_path / "turns" / f"{ref}.out").is_file()
+
+
+async def test_a_failed_detached_turn_records_its_error(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """A background turn returns a ref and zero, so the envelope is where failure can be seen."""
+    from einherjar_cli import cli
+
+    monkeypatch.setenv("EINHERJAR_CONFIG_DIR", str(tmp_path))
+    monkeypatch.setattr(cli, "TokenStore", lambda: object())
+    monkeypatch.setattr(
+        cli,
+        "run_turn",
+        lambda request: subprocess.CompletedProcess([], 1, stdout="", stderr="harness refused\n"),
+    )
+    ref = "ses_0123456789abcdef0123456789abcdef"
+
+    assert await cli.execute_turn(_detached_payload(tmp_path, ref)) == 1
+
+    text = (tmp_path / "turns" / f"{ref}.result.md").read_text(encoding="utf-8")
+    assert "status:     failed" in text
+    assert "error:      harness refused" in text

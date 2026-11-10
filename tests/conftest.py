@@ -42,6 +42,17 @@ def isolated_config(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
         monkeypatch.delenv(variable, raising=False)
 
 
+@pytest.fixture(autouse=True)
+def no_platform_session(monkeypatch: pytest.MonkeyPatch) -> None:
+    """No test may ask a real platform for a session.
+
+    ``ensure_session`` reaches OpenCode's HTTP API, so a test that sets ``EINHERJAR_PLATFORM``
+    would otherwise create real sessions on the developer's machine — measured: one suite run left
+    six of them. The tests that pin the wiring replace this with their own recorder.
+    """
+    monkeypatch.setattr("einherjar_cli.cli.create_session", lambda *args, **kwargs: None)
+
+
 @pytest.fixture(scope="session")
 def keypair() -> tuple[bytes, bytes]:
     key = rsa.generate_private_key(public_exponent=65537, key_size=2048)

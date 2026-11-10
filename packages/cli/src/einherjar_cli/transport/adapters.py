@@ -7,6 +7,7 @@ keeps a delegated turn identical on both.
 
 from __future__ import annotations
 
+import json
 import os
 import re
 import shutil
@@ -16,9 +17,12 @@ from typing import Callable, Literal, Mapping
 
 Mode = Literal["new", "resume"]
 
-_UUID = re.compile(
-    r"^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$"
-)
+
+class PlatformError(RuntimeError):
+    """The platform refused something the client needs before it can start a turn."""
+
+
+_UUID = re.compile(r"^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$")
 
 
 @dataclass(frozen=True)
@@ -129,3 +133,29 @@ def run_turn(
     stdout carries the reply and stderr the platform's progress lines.
     """
     return runner(resolve_command(argv_for(request)), capture_output=True, text=True)
+
+
+def create_session(
+    ref: str,
+    *,
+    directory: str | None = None,
+    title: str | None = None,
+    runner: Callable[..., subprocess.CompletedProcess] = subprocess.run,
+) -> None:
+    """Create the session the client is about to print, so the ref names one that exists.
+
+    ``opencode run --session`` creates an unknown id only on newer releases, so a client that
+    prints the ref before the turn cannot depend on that. Asking the platform directly makes the
+    ref real on every version, and failing here is better than failing after it has been shown.
+
+    The directory travels with the request because a session created without one belongs to the
+    caller's home project, and a turn resumed from a project directory would then run against it.
+    """
+    body: dict[str, object] = {"id": ref, "location": {"directory": directory or os.getcwd()}}
+    if title:
+        body["title"] = title
+    argv = ["opencode", "api", "post", "/api/session", "--data", json.dumps(body)]
+    result = runner(resolve_command(argv), capture_output=True, text=True)
+    if result.returncode != 0:
+        detail = (result.stderr or result.stdout or "").strip()[-500:]
+        raise PlatformError(f"the platform would not create session {ref}: {detail}")
