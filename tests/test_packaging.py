@@ -113,8 +113,9 @@ def test_each_distribution_owns_its_import_namespace_and_executable() -> None:
     }
     assert client["project"]["scripts"] == {"einherjar": "einherjar_cli.cli:main"}
 
-    assert server["project"]["version"] == "0.1.6"
-    assert client["project"]["version"] == "0.1.6"
+    # The two distributions are released together, so the versions move as one. Asserting they
+    # agree keeps that promise; pinning a literal only makes every release edit this test twice.
+    assert server["project"]["version"] == client["project"]["version"]
 
 
 def test_the_client_declares_only_client_dependencies() -> None:
