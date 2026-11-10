@@ -153,6 +153,29 @@ def _sender(registry: RegistryClient):
     return send
 
 
+async def _close_failed(
+    registry: RegistryClient,
+    buffer: PendingBuffer,
+    stored: dict | None,
+    row: dict,
+    err: TextIO,
+    detail: str,
+) -> None:
+    """Close a turn's row as failed, through the registry or the buffer, and never raise.
+
+    A turn that dies must still be recorded as dead, and a registry that cannot be reached must not
+    turn that into a second failure — the buffered close replays it on the next signed-in call.
+    """
+    error = (detail or "")[-2000:]
+    if stored is not None:
+        try:
+            await registry.update_session(stored["uuid"], status="failed", error=error)
+        except RegistryError as exc:
+            print(f"warning: could not mark the row failed: {exc}", file=err)
+        return
+    buffer.append({"action": "close", "row": row, "status": "failed", "error": error})
+
+
 async def ask(
     target_text: str,
     *,
@@ -228,29 +251,12 @@ async def _ask(
         await asyncio.to_thread(ensure_session, target, theme)
         result = await asyncio.to_thread(runner, request)
     except Exception as exc:  # noqa: BLE001 - a spawn that cannot start must close its row
-        if stored is not None:
-            try:
-                await registry.update_session(
-                    stored["uuid"], status="failed", error=str(exc)[-2000:]
-                )
-            except RegistryError as update_error:
-                print(f"warning: could not mark the row failed: {update_error}", file=err)
-        else:
-            buffer.append(
-                {"action": "close", "row": row, "status": "failed", "error": str(exc)[-2000:]}
-            )
+        await _close_failed(registry, buffer, stored, row, err, str(exc))
         print(f"the turn could not start: {exc}", file=err)
         return 1
 
     if result.returncode != 0:
-        error = (result.stderr or "")[-2000:]
-        if stored is not None:
-            try:
-                await registry.update_session(stored["uuid"], status="failed", error=error)
-            except RegistryError as exc:
-                print(f"warning: could not mark the row failed: {exc}", file=err)
-        else:
-            buffer.append({"action": "close", "row": row, "status": "failed", "error": error})
+        await _close_failed(registry, buffer, stored, row, err, result.stderr or "")
         print(result.stderr or "the turn failed", file=err)
         return 1
 
@@ -262,7 +268,8 @@ async def _ask(
     else:
         buffer.append({"action": "close", "row": row, "status": "completed"})
 
-    output = append_reply(target.ref, result.stdout)
+    answer = result.stdout or ""
+    output = append_reply(target.ref, answer)
     finished = datetime.now(timezone.utc).astimezone()
     print(target.ref, file=out)
     print(
@@ -270,7 +277,7 @@ async def _ask(
             ref=target.ref,
             platform=target.platform,
             status="completed",
-            answer=result.stdout,
+            answer=answer,
             output_path=output,
             started=started,
             finished=finished,
@@ -304,17 +311,7 @@ async def wrap_up(
             TurnRequest(target.platform, "resume", target.ref, WRAP_PROMPT, None),
         )
     except Exception as exc:  # noqa: BLE001 - a spawn that cannot start must close its row
-        if stored is not None:
-            try:
-                await registry.update_session(
-                    stored["uuid"], status="failed", error=str(exc)[-2000:]
-                )
-            except RegistryError as update_error:
-                print(f"warning: could not update the row: {update_error}", file=err)
-        else:
-            buffer.append(
-                {"action": "close", "row": row, "status": "failed", "error": str(exc)[-2000:]}
-            )
+        await _close_failed(registry, buffer, stored, row, err, str(exc))
         print(f"the wrap-up turn could not start: {exc}", file=err)
         return 1
     if stored is not None:
@@ -521,17 +518,7 @@ async def _delegate(
     try:
         await asyncio.to_thread(ensure_session, target, theme)
     except Exception as exc:  # noqa: BLE001 - a ref that is not real must not be handed over
-        if stored is not None:
-            try:
-                await registry.update_session(
-                    stored["uuid"], status="failed", error=str(exc)[-2000:]
-                )
-            except RegistryError as update_error:
-                print(f"warning: could not mark the row failed: {update_error}", file=err)
-        else:
-            buffer.append(
-                {"action": "close", "row": row, "status": "failed", "error": str(exc)[-2000:]}
-            )
+        await _close_failed(registry, buffer, stored, row, err, str(exc))
         print(f"the session could not be created: {exc}", file=err)
         return 1
 

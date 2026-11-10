@@ -5,6 +5,7 @@ from __future__ import annotations
 import io
 import os
 import subprocess
+from datetime import datetime
 from pathlib import Path
 
 import pytest
@@ -229,6 +230,8 @@ async def test_delegate_spawns_with_the_chosen_ref() -> None:
     assert payload["uuid"] == "u-1"
     assert payload["mode"] == "new"
     assert payload["prompt"].startswith("Awaken as the backend-django agent")
+    # The envelope reports when the turn started, so the parent has to hand the child a time.
+    assert datetime.fromisoformat(payload["started"]).tzinfo is not None
     assert out.getvalue().strip() == ref
 
 
