@@ -36,6 +36,7 @@ async def test_the_mcp_face_exposes_reads_and_content_only(tmp_path) -> None:
         tools = await client.list_tools()
 
     assert {tool.name for tool in tools} == {
+        "help",
         "fleet_sessions",
         "fleet_session",
         "list_procedures",

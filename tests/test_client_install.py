@@ -37,6 +37,7 @@ METADATA_URL = f"{BASE}/v1/resources/cli"
 WHEEL_URL = f"{METADATA_URL}/{FILENAME}"
 DSN = "postgresql://einherjar:secret@127.0.0.1:5432/valaskjalf"
 TOOLS = {
+    "help",
     "fleet_sessions",
     "fleet_session",
     "list_procedures",
@@ -79,6 +80,98 @@ async def test_the_native_resource_and_the_tool_return_the_same_text(tmp_path: P
 
     assert len(native) == 1
     assert native[0].text == through_tool.data["content"]
+
+
+async def test_help_explains_the_service_and_reuses_the_live_install_guide(tmp_path: Path) -> None:
+    dist = tmp_path / "dist"
+    make_wheel(dist, version=VERSION)
+
+    async with Client(_mcp(tmp_path, dist)) as client:
+        tools = {tool.name: tool for tool in await client.list_tools()}
+        help_result = (await client.call_tool("help", {})).data
+        procedures = (await client.call_tool("list_procedures", {})).data
+        install = (await client.read_resource(CLIENT_INSTALL_URI))[0].text
+
+    assert tools["help"].annotations.read_only_hint is True
+    assert "help()" in help_result["instructions"]
+    assert help_result["access"] == "mcp"
+    assert help_result["endpoint"] == f"{BASE}/mcp"
+    assert help_result["procedures"] == procedures
+    assert {row["name"] for row in procedures} == {"ask-agent"}
+    assert help_result["client_install"] == install
+    assert WHEEL_URL in install
+    assert "does not run agents remotely" in help_result["usage"]
+    assert "originating machine" in help_result["usage"]
+    assert "wrap-up" in help_result["usage"]
+    assert "multiline" in help_result["usage"]
+    assert help_result["commands"]["resume"].startswith("einherjar ask <session-ref>")
+    assert help_result["commands"]["full_log"] == "einherjar result <session-ref> --full"
+
+
+@pytest.mark.parametrize("artifact_present", [False, True])
+async def test_help_works_without_content_or_a_database(
+    tmp_path: Path, artifact_present: bool
+) -> None:
+    dist = tmp_path / "dist"
+    if artifact_present:
+        make_wheel(dist, version=VERSION)
+    mcp = build_mcp(
+        auth=None,
+        resolver=TenantResolver(db_url="unused"),
+        queries=FleetQueries(FleetRepository(db_url="unused")),
+        content=ContentLoader(tmp_path / "absent-content"),
+        cli_dist_dir=dist,
+        public_base_url=f"{BASE}/",
+    )
+
+    async with Client(mcp) as client:
+        result = (await client.call_tool("help", {})).data
+
+    assert result["procedures"] == []
+    assert result["endpoint"] == f"{BASE}/mcp"
+    if artifact_present:
+        assert WHEEL_URL in result["client_install"]
+    else:
+        assert "no CLI artifact directory" in result["client_install"]
+        assert "uv tool install --force" not in result["client_install"]
+
+
+async def test_help_reads_the_current_artifact_on_each_call(tmp_path: Path) -> None:
+    dist = tmp_path / "dist"
+    mcp = _mcp(tmp_path, dist)
+
+    async with Client(mcp) as client:
+        missing = (await client.call_tool("help", {})).data
+        wheel = make_wheel(dist, version=VERSION)
+        available = (await client.call_tool("help", {})).data
+        wheel.unlink()
+        make_wheel(dist, version="7.8.9")
+        upgraded = (await client.call_tool("help", {})).data
+
+    assert "no CLI artifact directory" in missing["client_install"]
+    assert WHEEL_URL in available["client_install"]
+    assert WHEEL_URL not in upgraded["client_install"]
+    assert "einherjar-7.8.9-py3-none-any.whl" in upgraded["client_install"]
+
+
+def test_install_guide_distinguishes_program_locations_from_client_state(tmp_path: Path) -> None:
+    text = client_install_text(BASE, tmp_path / "absent")
+
+    for expected in (
+        "uv tool dir",
+        "uv tool dir --bin",
+        "uv tool update-shell",
+        "%APPDATA%/einherjar",
+        "~/Library/Application Support/einherjar",
+        "$XDG_CONFIG_HOME/einherjar",
+        "~/.config/einherjar",
+        "EINHERJAR_CONFIG_DIR",
+        "OS keychain",
+        "credentials.json",
+        "not this server",
+    ):
+        assert expected in text
+    assert "does not install the wheel" in text
 
 
 async def test_the_resource_list_names_it_and_keeps_the_templates(tmp_path: Path) -> None:

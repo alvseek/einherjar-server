@@ -8,7 +8,7 @@ This repository ships two Python distributions. **`einherjar-server`** is this s
 
 ## What it serves
 
-- **The fleet layer.** The five procedures from [agent-memory-fleet](https://github.com/alvseek/agent-memory-fleet) — `ask-agent`, `delegate-agent`, `spawn`, `load-fleet`, `setup-fleet` — are served as MCP prompts and readable through a `read_procedure` tool, and the fleet's templates are served as resources. An agent fetches a procedure mid-task; a person can still invoke it by name.
+- **The fleet layer.** Start with the read-only `help()` tool: it explains the service, how to install the current client wheel, local storage locations and the commands to run. It lists the available procedures even when a client does not show MCP initialization instructions. The five procedures from [agent-memory-fleet](https://github.com/alvseek/agent-memory-fleet) — `ask-agent`, `delegate-agent`, `spawn`, `load-fleet`, `setup-fleet` — are served as MCP prompts and readable through a `read_procedure` tool, and the fleet's templates are served as resources. An agent fetches a procedure mid-task; a person can still invoke it by name.
 - **The client wheel.** `GET /v1/resources/cli` publicly describes the one CLI wheel bundled with this deployment — its real version, filename, size, SHA-256, download URL and exact install command — and `GET /v1/resources/cli/{filename}` serves those bytes. The MCP resource `resource://client/install`, tool name `client-install`, carries the same instructions. Nothing else on that path is reachable, a download needs no token, and a missing wheel is a `503` with the reason rather than a fabricated link.
 - **The session registry.** One `fleet_session` row per consult, keyed by `(user_id, machine, ref)`, written by the `einherjar` CLI that runs on the machine where the agent actually spawns.
 
@@ -51,6 +51,15 @@ written here: only the wheel bundled with the running server is served, and the 
 moves independently of the server's. `uv tool install --force` replaces an older combined install of
 the same distribution name. Upgrades are explicit — nothing checks for, or installs, a new version
 on its own.
+
+`uv` manages the installed environment and executable location: inspect them with `uv tool dir`
+and `uv tool dir --bin`, and use `uv tool update-shell` if the executable is not on PATH.
+This is separate from local state: Windows uses `%APPDATA%/einherjar`, macOS uses
+`~/Library/Application Support/einherjar`, and Linux uses `$XDG_CONFIG_HOME/einherjar`
+(default `~/.config/einherjar`). `EINHERJAR_CONFIG_DIR` overrides the state directory.
+There is no default `~/.einherjar` directory. Credentials normally live in the OS keychain;
+the state directory holds a fallback credential file only when the keychain is unavailable,
+alongside the machine id, pending records and turn logs.
 
 `einherjar login` asks for consent explicitly, so the issuer grants offline access and the client
 renews its own token; signing in again is only needed once that stored credential expires or is

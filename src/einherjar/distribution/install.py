@@ -15,6 +15,24 @@ from einherjar.distribution.reader import CliArtifactUnavailable, read_current
 #: The public discovery endpoint, relative to the configured base URL.
 METADATA_PATH = "/v1/resources/cli"
 
+_LOCATIONS = (
+    "## Where it is installed\n\n"
+    "`uv tool install` manages an isolated Python environment and puts the `einherjar` command\n"
+    "in uv's executable directory. Run `uv tool dir` and `uv tool dir --bin` on the client\n"
+    "machine to see those locations; run `uv tool update-shell` if that command is not on PATH.\n"
+    "You do not need a source checkout or a `~/.einherjar` directory. The CLI's `install`\n"
+    "subcommand registers the MCP server with a harness; it does not install the wheel.\n\n"
+    "## Where local state is kept\n\n"
+    "These are paths on the client machine, not this server:\n"
+    "- Windows: `%APPDATA%/einherjar` (fallback: `~/AppData/Roaming/einherjar`).\n"
+    "- macOS: `~/Library/Application Support/einherjar`.\n"
+    "- Linux and other platforms: `$XDG_CONFIG_HOME/einherjar` (default: `~/.config/einherjar`).\n"
+    "- Override on any platform: `EINHERJAR_CONFIG_DIR`.\n\n"
+    "This directory holds the machine id, pending registry records and turn logs. Credentials\n"
+    "normally use the OS keychain; `credentials.json` here is the fallback when it is\n"
+    "unavailable.\n"
+)
+
 
 def client_install_text(public_base_url: str, directory: Path | str) -> str:
     """How to install or upgrade the CLI, or why that cannot be answered right now."""
@@ -48,7 +66,8 @@ def _available(fields: dict[str, object], metadata_url: str) -> str:
         "    einherjar login                        # sign in once; it refreshes afterwards\n"
         "    einherjar install --harness opencode   # optional: register this server's MCP face\n"
         "    einherjar install --harness claude\n\n"
-        "The download and this metadata are public. Only the registry calls need the sign-in.\n"
+        "The download and this metadata are public. Only the registry calls need the sign-in.\n\n"
+        + _LOCATIONS
     )
 
 
@@ -62,5 +81,6 @@ def _unavailable(metadata_url: str, reason: str) -> str:
         "read it for the current state, and use the `download_url` and `install_command` it\n"
         "reports once a wheel is built.\n\n"
         "Prerequisites, once it is available: Python 3.12 or newer, `uv`, and a local model\n"
-        "harness (OpenCode or Claude Code). The download is public; signing in comes afterwards.\n"
+        "harness (OpenCode or Claude Code). The download is public; signing in comes\n"
+        "afterwards.\n\n" + _LOCATIONS
     )

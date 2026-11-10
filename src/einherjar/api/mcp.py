@@ -29,7 +29,9 @@ from einherjar.content.loader import ContentLoader
 from einherjar.distribution.install import client_install_text
 
 INSTRUCTIONS = (
-    "Einherjar serves the fleet layer. Read a procedure with read_procedure(name) and follow it. "
+    "Einherjar serves the fleet layer: consult or delegate to specialized agents running on your "
+    "own machine, and track their sessions. Call help() for setup, client installation and usage. "
+    "Read a procedure with read_procedure(name) and follow it. "
     "The registry tools are read-only: a consult is recorded by the einherjar CLI on the machine "
     "where the agent runs."
 )
@@ -42,6 +44,20 @@ CLIENT_INSTALL_TITLE = "Install the Einherjar CLI"
 CLIENT_INSTALL_MIME = "text/markdown"
 
 _READ = {"readOnlyHint": True, "openWorldHint": False}
+
+
+def _procedure_rows(content: ContentLoader) -> list[dict[str, str]]:
+    """Use the same live procedure index for discovery and help, even without a checkout."""
+    if not content.available():
+        return []
+    return [
+        {
+            "name": name,
+            "title": content.title_procedure(name),
+            "description": content.describe_procedure(name),
+        }
+        for name in content.list_procedures()
+    ]
 
 
 def _not_served(kind: str, name: str, listing: str) -> dict[str, Any]:
@@ -108,14 +124,7 @@ def _register_content(
     @mcp.tool(title="List served procedures", annotations=_READ)
     def list_procedures() -> list[dict[str, str]]:
         """List the fleet procedures this server serves, with a one-line purpose each."""
-        return [
-            {
-                "name": name,
-                "title": content.title_procedure(name),
-                "description": content.describe_procedure(name),
-            }
-            for name in content.list_procedures()
-        ]
+        return _procedure_rows(content)
 
     @mcp.tool(title="Read a served procedure", annotations=_READ)
     def read_procedure(name: str, argument: str | None = None) -> dict[str, Any]:
@@ -200,6 +209,47 @@ def build_mcp(
         return client_install_text(public_base_url, cli_dist_dir)
 
     _register_client_install(mcp, install_text)
+
+    @mcp.tool(name="help", title="What Einherjar is and how to use it", annotations=_READ)
+    def help_() -> dict[str, Any]:
+        """Explain the fleet layer, local CLI installation, storage locations and usage.
+
+        Includes the current wheel's download URL, hash and install command, plus the served
+        procedures. Available even without fleet content or a client wheel. Read-only.
+        """
+        return {
+            "instructions": INSTRUCTIONS,
+            "access": "mcp",
+            "endpoint": f"{public_base_url.rstrip('/')}/mcp",
+            "procedures": _procedure_rows(content),
+            "client_install": install_text(),
+            "usage": (
+                "The MCP server serves instructions and reads the session registry; it does not "
+                "run agents remotely. Install the CLI on each machine that will run agents, "
+                "with OpenCode or Claude Code available there. Run it from the project directory. "
+                "Read load-fleet to discover teammates, ask-agent for a blocking consultation, "
+                "delegate-agent for background work, spawn for a fresh session without fleet "
+                "awakening, or setup-fleet to initialize a roster. Use read_procedure(name) "
+                "and follow the returned procedure; read_resource(name) reads its templates. "
+                "fleet_sessions and fleet_session only read your tenant's recorded consults. "
+                "A completed process does not prove memory was saved: request wrap-up explicitly "
+                "for an awakened fleet agent. References resume on the originating machine and "
+                "platform. For long or multiline tasks, put the task in a file and name it in a "
+                "short single-line --prompt; Windows command shims can truncate multiline "
+                "arguments."
+            ),
+            "commands": {
+                "consult": 'einherjar ask <agent-name> --prompt "<task>"',
+                "delegate": 'einherjar delegate <agent-name> --prompt "<task>"',
+                "spawn": 'einherjar spawn --prompt "<task>"',
+                "spawn_background": 'einherjar spawn --background --prompt "<task>"',
+                "resume": 'einherjar ask <session-ref> --prompt "<next task>"',
+                "result": "einherjar result <session-ref>",
+                "full_log": "einherjar result <session-ref> --full",
+                "sessions": "einherjar sessions",
+                "wrap_up": "einherjar wrap-up <session-ref>",
+            },
+        }
 
     if content.available():
         _register_content(mcp, content, install_text)
