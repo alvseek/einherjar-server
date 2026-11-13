@@ -42,6 +42,10 @@ class ContentLoader:
             return text
         return text.replace("$ARGUMENTS", argument)
 
+    def accepts_argument(self, name: str) -> bool:
+        """Only a procedure with the literal input placeholder declares an argument."""
+        return "$ARGUMENTS" in self.get_procedure(name)
+
     def title_procedure(self, name: str) -> str:
         return self._title(self.get_procedure(name), name)
 

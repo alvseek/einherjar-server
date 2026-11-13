@@ -89,6 +89,11 @@ def _register_content(
             return content.get_procedure(procedure, kwargs.get("argument") or None)
 
         fn.__name__ = procedure.replace("-", "_")
+        if not content.accepts_argument(procedure):
+            # No placeholder means no slot: do not accept text the body cannot consume.
+            fn.__annotations__ = {"return": str}
+            fn.__signature__ = inspect.Signature([], return_annotation=str)  # type: ignore[attr-defined]
+            return fn
         fn.__doc__ = (
             f"{content.title_procedure(procedure)}\n\n"
             "Read this procedure, then follow its steps; fetching it does not run an agent.\n\n"
