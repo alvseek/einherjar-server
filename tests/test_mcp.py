@@ -45,6 +45,29 @@ async def test_the_mcp_face_exposes_reads_and_content_only(tmp_path) -> None:
         "read_resource",
     }
 
+    for tool in tools:
+        assert tool.description
+        for name, parameter in tool.input_schema.get("properties", {}).items():
+            assert parameter.get("description"), (tool.name, name)
+
+    by_name = {tool.name: tool for tool in tools}
+    assert by_name["fleet_session"].input_schema["required"] == ["uuid"]
+    assert by_name["read_procedure"].input_schema["required"] == ["name"]
+    assert by_name["read_resource"].input_schema["required"] == ["name"]
+    for tool_name, parameters in {
+        "fleet_sessions": ("project", "status"),
+        "read_procedure": ("argument",),
+    }.items():
+        schema = by_name[tool_name].input_schema
+        for name in parameters:
+            assert name not in schema.get("required", [])
+            assert schema["properties"][name]["default"] is None
+    assert (
+        "Prefixes are not resolved"
+        in (by_name["fleet_session"].input_schema["properties"]["uuid"]["description"])
+    )
+    assert "not a live health check" in by_name["fleet_sessions"].description
+
 
 def test_queries_never_cross_a_tenant(repository: FleetRepository) -> None:
     queries = FleetQueries(repository)

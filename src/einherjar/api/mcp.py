@@ -18,9 +18,10 @@ from __future__ import annotations
 
 import inspect
 from pathlib import Path
-from typing import Any, Callable
+from typing import Annotated, Any, Callable
 
 from fastmcp import FastMCP
+from pydantic import Field
 
 from einherjar.business.queries import FleetQueries
 from einherjar.business.tenant import TenantResolver
@@ -42,6 +43,11 @@ CLIENT_INSTALL_URI = "resource://client/install"
 CLIENT_INSTALL_NAME = "client-install"
 CLIENT_INSTALL_TITLE = "Install the Einherjar CLI"
 CLIENT_INSTALL_MIME = "text/markdown"
+CLIENT_INSTALL_DESCRIPTION = (
+    "Installation and upgrade instructions for the local Einherjar CLI, using this deployment's "
+    "wheel. Includes its download URL, SHA-256 hash and install command, or explains why no wheel "
+    "is available. Reading this guide does not install anything."
+)
 
 _READ = {"readOnlyHint": True, "openWorldHint": False}
 
@@ -85,7 +91,9 @@ def _register_content(
         fn.__name__ = procedure.replace("-", "_")
         fn.__doc__ = (
             f"{content.title_procedure(procedure)}\n\n"
-            "Args:\n    argument: the procedure's arguments, as its Arguments section describes\n"
+            "Read this procedure, then follow its steps; fetching it does not run an agent.\n\n"
+            "Args:\n    argument: Optional text substituted into $ARGUMENTS. Use the format "
+            "in the procedure's Arguments section; omit to supply no argument.\n"
         )
         fn.__annotations__ = {"argument": str, "return": str}
         parameter = inspect.Parameter(
@@ -115,6 +123,7 @@ def _register_content(
             f"resource://templates/{name}",
             name=name,
             title=content.title_resource(name),
+            description=content.describe_resource(name),
             mime_type=content.mime_type_resource(name),
             annotations={"audience": ["assistant"], "priority": 0.1},
         )(_make_resource(name))
@@ -123,15 +132,32 @@ def _register_content(
 
     @mcp.tool(title="List served procedures", annotations=_READ)
     def list_procedures() -> list[dict[str, str]]:
-        """List the fleet procedures this server serves, with a one-line purpose each."""
+        """Discover fleet procedures before choosing which instructions to read.
+
+        Takes no parameters. Returns name, title and description for each served procedure.
+        Pass a returned name to read_procedure; this listing does not execute instructions or
+        start an agent. Procedures cover setup, teammate discovery, consultation and spawning.
+        """
         return _procedure_rows(content)
 
     @mcp.tool(title="Read a served procedure", annotations=_READ)
-    def read_procedure(name: str, argument: str | None = None) -> dict[str, Any]:
-        """Read a fleet procedure and follow it. `argument` fills the procedure's $ARGUMENTS slot.
+    def read_procedure(
+        name: Annotated[
+            str, Field(description="Exact name from list_procedures, without / or .md.")
+        ],
+        argument: Annotated[
+            str | None,
+            Field(
+                description="Text substituted for $ARGUMENTS, using the procedure's Arguments "
+                "format. Omit or pass null to read authored text without substitution."
+            ),
+        ] = None,
+    ) -> dict[str, Any]:
+        """Fetch a fleet procedure's full instructions so you can follow them.
 
-        Use this instead of an installed command: the fleet layer is served, not installed. An
-        unknown name returns served=false rather than an error.
+        Use this for agent-invoked access instead of relying on an installed slash command.
+        Returns served=true, name and content; an unknown name returns served=false, name and a
+        discovery note. Reading does not execute the steps, spawn an agent or change the registry.
         """
         try:
             text = content.get_procedure(name, argument)
@@ -141,12 +167,18 @@ def _register_content(
 
     @mcp.tool(title="List served templates", annotations=_READ)
     def list_resources() -> list[dict[str, str]]:
-        """List the templates this server serves, plus how to install the CLI."""
+        """Discover served templates and the local CLI installation guide.
+
+        Takes no parameters. Returns name, title, uri and description for each item. Pass its
+        name (not URI) to read_resource, or read the URI through native MCP resource access.
+        This only lists content; it does not download a wheel, install the CLI or create a roster.
+        """
         return [
             {
                 "name": name,
                 "title": content.title_resource(name),
                 "uri": f"resource://templates/{name}",
+                "description": content.describe_resource(name),
             }
             for name in content.list_resources()
         ] + [
@@ -154,14 +186,25 @@ def _register_content(
                 "name": CLIENT_INSTALL_NAME,
                 "title": CLIENT_INSTALL_TITLE,
                 "uri": CLIENT_INSTALL_URI,
+                "description": CLIENT_INSTALL_DESCRIPTION,
             }
         ]
 
-    @mcp.tool(title="Read a served template", annotations=_READ)
-    def read_resource(name: str) -> dict[str, Any]:
+    @mcp.tool(title="Read a served resource", annotations=_READ)
+    def read_resource(
+        name: Annotated[
+            str,
+            Field(
+                description="Exact name from list_resources, not a URI or file path. "
+                "Use client-install for the CLI installation and upgrade guide."
+            ),
+        ],
+    ) -> dict[str, Any]:
         """Read a served template verbatim, or the CLI installation instructions.
 
-        An unknown name returns served=false.
+        Returns served=true, name and content; an unknown name returns served=false, name and a
+        discovery note. Follow the relevant procedure to use a template. Reading does not save
+        a file, create a roster, download the CLI or install it.
         """
         if name == CLIENT_INSTALL_NAME:
             return {"served": True, "name": name, "content": install_text()}
@@ -183,11 +226,12 @@ def _register_client_install(mcp: FastMCP, install_text: Callable[[], str]) -> N
         return install_text()
 
     fn.__name__ = "client_install"
-    fn.__doc__ = "How to install or upgrade the local Einherjar CLI on this machine."
+    fn.__doc__ = CLIENT_INSTALL_DESCRIPTION
     mcp.resource(
         CLIENT_INSTALL_URI,
         name=CLIENT_INSTALL_NAME,
         title=CLIENT_INSTALL_TITLE,
+        description=CLIENT_INSTALL_DESCRIPTION,
         mime_type=CLIENT_INSTALL_MIME,
         annotations={"audience": ["assistant", "user"], "priority": 0.5},
     )(fn)
@@ -212,10 +256,12 @@ def build_mcp(
 
     @mcp.tool(name="help", title="What Einherjar is and how to use it", annotations=_READ)
     def help_() -> dict[str, Any]:
-        """Explain the fleet layer, local CLI installation, storage locations and usage.
+        """Start here for Einherjar setup, capabilities and command examples.
 
-        Includes the current wheel's download URL, hash and install command, plus the served
-        procedures. Available even without fleet content or a client wheel. Read-only.
+        Takes no parameters. Returns instructions, endpoint, procedure discovery, installation
+        guidance, local state locations and command examples. Describes this deployment's
+        current wheel or explains its absence. Available even without fleet content or a wheel.
+        Read-only guidance: MCP does not run agents remotely; the local CLI runs them.
         """
         return {
             "instructions": INSTRUCTIONS,
@@ -255,8 +301,30 @@ def build_mcp(
         _register_content(mcp, content, install_text)
 
     @mcp.tool(title="The caller's recorded consults", annotations=_READ)
-    def fleet_sessions(project: str | None = None, status: str | None = None) -> list[dict]:
-        """The caller's recorded consults, newest first. Read-only."""
+    def fleet_sessions(
+        project: Annotated[
+            str | None,
+            Field(
+                description="Exact recorded project name. Omit or pass null for all projects; "
+                "an empty string is a literal filter, not all projects."
+            ),
+        ] = None,
+        status: Annotated[
+            str | None,
+            Field(
+                description="Exact status: active, completed or failed. Omit or pass null for "
+                "all statuses. Unrecognized values match no rows."
+            ),
+        ] = None,
+    ) -> list[dict]:
+        """List the authenticated tenant's recorded sessions, newest created first.
+
+        Optional project and status filters are exact matches combined with AND. Returns
+        records with UUID, platform session reference, machine, project, domain, theme, status,
+        timestamps and error details; no matches returns an empty list.
+        Use a row's uuid with fleet_session. This does not poll a process or return its reply/log;
+        use the local CLI for results. Recorded status is not a live health check.
+        """
         return queries.list_sessions(
             user_id=resolver.current_user_id(),
             project=project,
@@ -264,8 +332,21 @@ def build_mcp(
         )
 
     @mcp.tool(title="One recorded consult", annotations=_READ)
-    def fleet_session(uuid: str) -> dict | None:
-        """One recorded consult by uuid, for the caller's tenant only. None when absent."""
+    def fleet_session(
+        uuid: Annotated[
+            str,
+            Field(
+                description="Full registry UUID from fleet_sessions, not the platform "
+                "session_ref (such as ses_...). Prefixes are not resolved."
+            ),
+        ],
+    ) -> dict | None:
+        """Read one session registry record belonging to the authenticated tenant.
+
+        Returns identifiers, machine, platform, project, domain, theme, status, timestamps and
+        error details. Returns null when unknown or owned by another tenant. Does not resume or
+        poll the agent, or retrieve its answer/log; use the CLI on the originating machine.
+        """
         return queries.get_session(user_id=resolver.current_user_id(), uuid=uuid)
 
     return mcp

@@ -78,6 +78,10 @@ async def test_prompts_prompts_and_tools_are_the_same_content(loader: ContentLoa
         resources = await client.list_resources()
         read = await client.call_tool("read_procedure", {"name": "ask-agent"})
         missing = await client.call_tool("read_procedure", {"name": "nope"})
+        procedure_listing = await client.call_tool("list_procedures")
+        resource_listing = await client.call_tool("list_resources")
+        template = await client.call_tool("read_resource", {"name": "fleet-agents-template"})
+        missing_resource = await client.call_tool("read_resource", {"name": "nope"})
 
     assert {p.name for p in prompts} == PROCEDURES
     # The fleet's templates plus the one resource that is not fleet content: the client install.
@@ -87,3 +91,34 @@ async def test_prompts_prompts_and_tools_are_the_same_content(loader: ContentLoa
     assert read.data["served"] is True
     assert "Ask Agent" in read.data["content"]
     assert missing.data["served"] is False
+    assert template.data["content"] == loader.get_resource("fleet-agents-template")
+    assert missing_resource.data["served"] is False
+
+    procedure_rows = {row["name"]: row for row in procedure_listing.data}
+    for prompt in prompts:
+        assert prompt.description == procedure_rows[prompt.name]["description"]
+        assert "does not execute" in prompt.description
+        argument = next(arg for arg in prompt.arguments if arg.name == "argument")
+        assert argument.description
+        assert "$ARGUMENTS" in argument.description
+        assert not argument.required
+
+    resource_rows = {row["name"]: row for row in resource_listing.data}
+    for resource in resources:
+        assert resource.description
+        assert resource.description == resource_rows[resource.name]["description"]
+        assert str(resource.uri) == resource_rows[resource.name]["uri"]
+
+
+def test_resource_description_uses_the_templates_own_introduction(tmp_path: Path) -> None:
+    templates = tmp_path / "templates"
+    templates.mkdir()
+    (templates / "sample.md").write_text(
+        "> **A roster for teammates.** Fill it in.\n\n| Agent | Role |\n", encoding="utf-8"
+    )
+    loader = ContentLoader(tmp_path)
+    description = loader.describe_resource("sample")
+    assert description.startswith("A roster for teammates.")
+    assert "**" not in description
+    assert "read_resource" in description
+    assert "does not create" in description

@@ -51,7 +51,11 @@ class ContentLoader:
             f"Use when the user runs /{name}, asks for the {self.title_procedure(name)} procedure, "
             f"or mentions {name}."
         )
-        return f"{lead} {trigger}".strip() if lead else trigger
+        purpose = f"{lead} {trigger}".strip() if lead else trigger
+        return (
+            f"{purpose} Read with read_procedure and follow the returned instructions; "
+            "fetching the procedure does not execute it."
+        )
 
     def list_resources(self) -> list[str]:
         directory = self._root / "templates"
@@ -69,6 +73,18 @@ class ContentLoader:
 
     def title_resource(self, name: str) -> str:
         return self._title(self.get_resource(name), name)
+
+    def describe_resource(self, name: str) -> str:
+        """Describe a template from its own introduction, including blockquote introductions."""
+        text = self.get_resource(name)
+        unquoted = "\n".join(
+            re.sub(r"^\s*>\s?", "", line).replace("**", "") for line in text.splitlines()
+        )
+        lead = self._lead(unquoted) or self.title_resource(name)
+        return (
+            f"{lead} Read this template verbatim with read_resource and fill it as directed "
+            "by the relevant fleet procedure; reading does not create or save an artifact."
+        )
 
     def _resource_path(self, name: str) -> Path:
         for suffix in (".md", ".csv"):
