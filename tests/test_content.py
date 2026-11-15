@@ -131,3 +131,36 @@ def test_resource_description_uses_the_templates_own_introduction(tmp_path: Path
     assert "**" not in description
     assert "read_resource" in description
     assert "does not create" in description
+
+
+@pytest.mark.parametrize(
+    "arguments",
+    [
+        None,
+        '--plan "plans/change.md" --rules "guidance/team.md" --model provider/model',
+        '--plan "plans/change.md" --rules "guidance/team.md" --model provider/model '
+        '--worktree "../feature work" --branch feature/change',
+        '--plan "plans/change.md" --rules "guidance/team.md" --model provider/model '
+        '--worktree "../feature work" --branch feature/change --base HEAD',
+    ],
+)
+async def test_dispatch_workspace_arguments_reach_prompt_and_tool(
+    loader: ContentLoader, arguments: str | None
+) -> None:
+    mcp = build_mcp(
+        auth=None,
+        resolver=TenantResolver(db_url="unused"),
+        queries=FleetQueries(FleetRepository(db_url="unused")),
+        content=loader,
+    )
+    async with Client(mcp) as client:
+        tool = await client.call_tool(
+            "read_procedure", {"name": "dispatch-plan", "argument": arguments}
+        )
+        prompt = await client.get_prompt(
+            "dispatch-plan", {} if arguments is None else {"argument": arguments}
+        )
+    expected = loader.get_procedure("dispatch-plan", arguments)
+    assert tool.data["content"] == prompt.messages[0].content.text == expected
+    assert "initial launch and every continuation" in expected
+    assert "never a checkout copy" in expected
