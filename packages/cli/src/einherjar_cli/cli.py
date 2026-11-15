@@ -153,27 +153,28 @@ def _sender(registry: RegistryClient):
     return send
 
 
-async def _close_failed(
+async def _close_turn(
     registry: RegistryClient,
     buffer: PendingBuffer,
     stored: dict | None,
     row: dict,
     err: TextIO,
-    detail: str,
+    status: str,
+    detail: str = "",
 ) -> None:
-    """Close a turn's row as failed, through the registry or the buffer, and never raise.
+    """Close a turn through the registry, or queue its terminal update for replay.
 
-    A turn that dies must still be recorded as dead, and a registry that cannot be reached must not
-    turn that into a second failure — the buffered close replays it on the next signed-in call.
+    A failure after a successful create needs the same durable retry as a failed create.
+    Tracking failure must not change the turn's result or leave its terminal update lost.
     """
-    error = (detail or "")[-2000:]
+    error = (detail or "")[-2000:] or None
     if stored is not None:
         try:
-            await registry.update_session(stored["uuid"], status="failed", error=error)
+            await registry.update_session(stored["uuid"], status=status, error=error)
+            return
         except RegistryError as exc:
-            print(f"warning: could not mark the row failed: {exc}", file=err)
-        return
-    buffer.append({"action": "close", "row": row, "status": "failed", "error": error})
+            print(f"warning: could not mark the row {status}: {exc}; close buffered", file=err)
+    buffer.append({"action": "close", "row": row, "status": status, "error": error})
 
 
 async def ask(
@@ -255,22 +256,16 @@ async def _ask(
         await asyncio.to_thread(ensure_session, target, theme)
         result = await asyncio.to_thread(runner, request)
     except Exception as exc:  # noqa: BLE001 - a spawn that cannot start must close its row
-        await _close_failed(registry, buffer, stored, row, err, str(exc))
+        await _close_turn(registry, buffer, stored, row, err, "failed", str(exc))
         print(f"the turn could not start: {exc}", file=err)
         return 1
 
     if result.returncode != 0:
-        await _close_failed(registry, buffer, stored, row, err, result.stderr or "")
+        await _close_turn(registry, buffer, stored, row, err, "failed", result.stderr or "")
         print(result.stderr or "the turn failed", file=err)
         return 1
 
-    if stored is not None:
-        try:
-            await registry.update_session(stored["uuid"], status="completed")
-        except RegistryError as exc:
-            print(f"warning: could not mark the row completed: {exc}", file=err)
-    else:
-        buffer.append({"action": "close", "row": row, "status": "completed"})
+    await _close_turn(registry, buffer, stored, row, err, "completed")
 
     answer = result.stdout or ""
     output = append_reply(target.ref, answer)
@@ -305,7 +300,18 @@ async def wrap_up(
 ) -> int:
     settings = settings or ClientSettings.load()
     buffer = buffer or PendingBuffer()
-    target = resolve_target(ref)
+    platform = platform_for_ref(ref)
+    if platform is None:
+        print(
+            "wrap-up requires an existing session ref (UUID or ses_...), not an agent name",
+            file=err,
+        )
+        return 1
+    target = Target(platform, "resume", ref)
+    try:
+        await buffer.flush(_sender(registry))
+    except Exception as exc:  # noqa: BLE001 - corrupt tracking must not block a valid turn
+        print(f"warning: pending rows were left untouched: {exc}", file=err)
     row = _row(target, project=project or project_name(), theme="wrap-up", domain=None)
     stored = await _record(registry, buffer, row, err)
 
@@ -315,25 +321,18 @@ async def wrap_up(
             TurnRequest(target.platform, "resume", target.ref, WRAP_PROMPT, None),
         )
     except Exception as exc:  # noqa: BLE001 - a spawn that cannot start must close its row
-        await _close_failed(registry, buffer, stored, row, err, str(exc))
+        await _close_turn(registry, buffer, stored, row, err, "failed", str(exc))
         print(f"the wrap-up turn could not start: {exc}", file=err)
         return 1
-    if stored is not None:
-        try:
-            await registry.update_session(
-                stored["uuid"],
-                status="completed" if result.returncode == 0 else "failed",
-            )
-        except RegistryError as exc:
-            print(f"warning: could not update the row: {exc}", file=err)
-    else:
-        buffer.append(
-            {
-                "action": "close",
-                "row": row,
-                "status": "completed" if result.returncode == 0 else "failed",
-            }
-        )
+    await _close_turn(
+        registry,
+        buffer,
+        stored,
+        row,
+        err,
+        "completed" if result.returncode == 0 else "failed",
+        result.stderr or "" if result.returncode != 0 else "",
+    )
     if result.returncode != 0:
         print(result.stderr or "the wrap-up turn failed", file=err)
         return 1
@@ -420,23 +419,6 @@ def envelope(
         head.append(f"error:      {error}")
     body = answer if answer.endswith("\n") or not answer else answer + "\n"
     return "\n".join(head) + "\n" + SEPARATOR + "\n" + body
-
-
-def write_answer(text: str) -> None:
-    """Write the reply's own bytes, so the log matches what the envelope counted.
-
-    Text mode would translate every newline to the platform's, which makes one log CRLF when the
-    detached child writes it and LF when a foreground turn appends to it — the same file, two
-    endings, for the same reply.
-    """
-    data = text.encode("utf-8")
-    buffer = getattr(sys.stdout, "buffer", None)
-    if buffer is None:  # a captured stdout with no byte layer
-        sys.stdout.write(data.decode("utf-8"))
-        sys.stdout.flush()
-        return
-    buffer.write(data)
-    buffer.flush()
 
 
 async def spawn(

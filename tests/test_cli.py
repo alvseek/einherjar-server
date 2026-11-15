@@ -12,13 +12,13 @@ import pytest
 from einherjar_cli.cli import (
     WRAP_PROMPT,
     Target,
+    append_reply,
     ask,
     awaken_prompt,
     resolve_target,
     result,
     sessions,
     wrap_up,
-    write_answer,
 )
 from einherjar_cli.registry.client import RegistryError
 from einherjar_cli.settings import ClientSettings
@@ -433,21 +433,96 @@ async def test_result_prefers_the_envelope_and_falls_back_to_the_log(
     assert "no recorded output for ses_missing" in err.getvalue()
 
 
-def test_the_answer_reaches_the_log_byte_for_byte(monkeypatch: pytest.MonkeyPatch) -> None:
-    """Text mode would make one log CRLF and the other LF, for the same reply."""
-    raw = io.BytesIO()
+def test_reply_log_preserves_utf8_and_lf() -> None:
+    path = append_reply("ses_bytes", "line one\ncafé\n")
+    append_reply("ses_bytes", "line three\n")
+    assert path.read_bytes() == "line one\ncafé\nline three\n".encode("utf-8")
 
-    class Captured:
-        buffer = raw
 
-        def write(self, text: str) -> None:
-            raise AssertionError("write_answer must use the byte layer when it exists")
+@pytest.mark.parametrize("operation", ["ask", "wrap-up"])
+@pytest.mark.parametrize(
+    ("runner", "expected_code", "expected_status"),
+    [(runner_ok, 0, "completed"), (runner_fail, 1, "failed"), (runner_raises, 1, "failed")],
+)
+async def test_close_outage_is_buffered_and_replayed(
+    operation, runner, expected_code, expected_status, tmp_path: Path
+) -> None:
+    class CloseOutage(FakeRegistry):
+        async def update_session(self, uuid, *, status, error=None):
+            raise RegistryError("synthetic close outage")
 
-        def flush(self) -> None:
-            raise AssertionError("write_answer must use the byte layer when it exists")
+    registry = CloseOutage()
+    buffer = PendingBuffer(tmp_path / "pending.jsonl")
+    options = dict(
+        settings=SETTINGS,
+        registry=registry,
+        buffer=buffer,
+        runner=runner,
+        project="proj",
+        out=io.StringIO(),
+        err=io.StringIO(),
+    )
+    if operation == "ask":
+        code = await ask("ses_close_outage", prompt="Task", **options)
+    else:
+        code = await wrap_up("ses_close_outage", **options)
+    assert code == expected_code
+    records = buffer.read()
+    assert len(records) == 1
+    assert records[0]["action"] == "close"
+    assert records[0]["status"] == expected_status
+    assert records[0]["row"]["session_ref"] == "ses_close_outage"
+    assert (records[0]["error"] is not None) == (expected_status == "failed")
+    recovered = FakeRegistry()
+    await sessions(registry=recovered, buffer=buffer, out=io.StringIO())
+    assert buffer.read() == []
+    assert len(recovered.created) == 1
+    assert recovered.updated == [("u-1", expected_status, records[0]["error"])]
 
-    monkeypatch.setattr("einherjar_cli.cli.sys.stdout", Captured())
 
-    write_answer("line one\nline two\n")
+async def test_wrap_up_requires_ref_without_recording_or_running(tmp_path: Path) -> None:
+    registry, requests, err = FakeRegistry(), [], io.StringIO()
+    code = await wrap_up(
+        "software-architect",
+        settings=SETTINGS,
+        registry=registry,
+        buffer=PendingBuffer(tmp_path / "pending.jsonl"),
+        runner=requests.append,
+        project="proj",
+        out=io.StringIO(),
+        err=err,
+    )
+    assert code == 1
+    assert registry.created == registry.updated == requests == []
+    assert "existing session ref" in err.getvalue()
 
-    assert raw.getvalue() == b"line one\nline two\n"
+
+async def test_wrap_up_flushes_pending_before_recording(tmp_path: Path) -> None:
+    registry = FakeRegistry()
+    buffer = PendingBuffer(tmp_path / "pending.jsonl")
+    buffer.append(
+        {
+            "action": "close",
+            "row": {
+                "machine": "m",
+                "session_ref": "ses_previous",
+                "platform": "opencode",
+            },
+            "status": "completed",
+        }
+    )
+    assert (
+        await wrap_up(
+            "ses_current",
+            settings=SETTINGS,
+            registry=registry,
+            buffer=buffer,
+            runner=runner_ok,
+            project="proj",
+            out=io.StringIO(),
+            err=io.StringIO(),
+        )
+        == 0
+    )
+    assert [r["session_ref"] for r in registry.created] == ["ses_previous", "ses_current"]
+    assert buffer.read() == []

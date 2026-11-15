@@ -79,6 +79,17 @@ def test_explicit_unresolved_model_is_refused(mapping: str | None) -> None:
         resolve_model("opencode", "sonnet", env)
 
 
+def test_dotted_alias_preserves_key_and_explains_powershell() -> None:
+    alias = "deepseek-v4.1-flash"
+    key = "EINHERJAR_MODEL_DEEPSEEK_V4.1_FLASH"
+    assert resolve_model("opencode", alias, {key: "opencode-go/deepseek-v4.1-flash"}) == (
+        "opencode-go/deepseek-v4.1-flash"
+    )
+    with pytest.raises(PlatformError) as exc:
+        resolve_model("opencode", alias, {})
+    assert "${env:" + key + "}" in str(exc.value)
+
+
 @pytest.mark.parametrize("platform", ["opencode", "claude"])
 @pytest.mark.parametrize("model", ["", " ", "\t"])
 def test_explicit_blank_model_does_not_default(platform: str, model: str) -> None:

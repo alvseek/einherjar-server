@@ -64,6 +64,19 @@ the platform-specific instructions; `/dispatch-plan` adds supervised approved-pl
 An omitted procedure identity selects spawn. A supplied OpenCode alias must have a qualified
 `EINHERJAR_MODEL_<ALIAS>` mapping or is refused, not silently replaced by a default.
 
+Alias lookup uppercases the alias and replaces hyphens with underscores; other characters,
+including dots, stay unchanged. Prefer a short alias such as `flash`, or pass the qualified
+model directly. To set a dotted alias in PowerShell, brace the environment-variable name:
+
+```powershell
+${env:EINHERJAR_MODEL_DEEPSEEK_V4.1_FLASH} = 'opencode-go/deepseek-v4.1-flash'
+einherjar spawn --model deepseek-v4.1-flash --prompt "..."
+```
+
+`wrap-up` requires an existing session reference, not an agent name. It replays pending
+tracking before running. If recording the end of any turn fails, that terminal update
+is buffered for replay on a later registry call; the turn's own result is still returned.
+
 ## Local state
 
 Everything below `EINHERJAR_CONFIG_DIR` (default: the platform's per-user config directory, in an

@@ -83,7 +83,8 @@ def resolve_model(
         if not resolved or "/" not in resolved:
             raise PlatformError(
                 f"cannot resolve explicit model {model!r}: set {variable} to provider/model "
-                "or pass a qualified provider/model directly"
+                "or pass a qualified provider/model directly. "
+                f"In PowerShell, use ${{env:{variable}}} = 'provider/model'."
             )
         return resolved
     return model
