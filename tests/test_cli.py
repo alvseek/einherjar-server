@@ -5,7 +5,6 @@ from __future__ import annotations
 import io
 import os
 import subprocess
-from datetime import datetime
 from pathlib import Path
 
 import pytest
@@ -15,7 +14,6 @@ from einherjar_cli.cli import (
     Target,
     ask,
     awaken_prompt,
-    delegate,
     resolve_target,
     result,
     sessions,
@@ -203,36 +201,6 @@ async def test_wrap_up_closes_the_row() -> None:
     assert seen[0].prompt == WRAP_PROMPT
     assert registry.created[0]["session_ref"] == "ses_abc"
     assert registry.updated == [("u-1", "completed", None)]
-
-
-async def test_delegate_spawns_with_the_chosen_ref() -> None:
-    registry, out, err = FakeRegistry(), io.StringIO(), io.StringIO()
-    spawned: list[tuple[dict, str]] = []
-
-    def spawn(payload: dict, ref: str) -> Path:
-        spawned.append((payload, ref))
-        return Path("out")
-
-    code = await delegate(
-        "Backend Django",
-        prompt="Build the endpoint",
-        theme="endpoint",
-        settings=SETTINGS,
-        registry=registry,
-        project="proj",
-        spawn=spawn,
-        out=out,
-        err=err,
-    )
-
-    assert code == 0
-    payload, ref = spawned[0]
-    assert payload["uuid"] == "u-1"
-    assert payload["mode"] == "new"
-    assert payload["prompt"].startswith("Awaken as the backend-django agent")
-    # The envelope reports when the turn started, so the parent has to hand the child a time.
-    assert datetime.fromisoformat(payload["started"]).tzinfo is not None
-    assert out.getvalue().strip() == ref
 
 
 async def test_sessions_prints_the_rows() -> None:

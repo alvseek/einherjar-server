@@ -279,8 +279,12 @@ def build_mcp(
                 "run agents remotely. Install the CLI on each machine that will run agents, "
                 "with OpenCode or Claude Code available there. Run it from the project directory. "
                 "Read load-fleet to discover teammates, ask-agent for a blocking consultation, "
-                "delegate-agent for background work, spawn for a fresh session without fleet "
-                "awakening, or setup-fleet to initialize a roster. Use read_procedure(name) "
+                "delegate-agent for platform-owned completion-aware parallel work, spawn for a "
+                "fresh session without fleet awakening, dispatch-plan to supervise an approved "
+                "plan with custom rules and an explicit model, or setup-fleet to initialize a "
+                "roster. Omitted identity selects anonymous spawn. Client-owned detached execution "
+                "is removed; use a platform task around blocking ask/spawn, or remain blocking. "
+                "Use read_procedure(name) "
                 "and follow the returned procedure; read_resource(name) reads its templates. "
                 "fleet_sessions and fleet_session only read your tenant's recorded consults. "
                 "A completed process does not prove memory was saved: request wrap-up explicitly "
@@ -291,9 +295,14 @@ def build_mcp(
             ),
             "commands": {
                 "consult": 'einherjar ask <agent-name> --prompt "<task>"',
-                "delegate": 'einherjar delegate <agent-name> --prompt "<task>"',
+                "delegate": (
+                    "Read delegate-agent; run blocking ask/spawn through the invoking platform's "
+                    "completion-aware background task, or remain blocking."
+                ),
                 "spawn": 'einherjar spawn --prompt "<task>"',
-                "spawn_background": 'einherjar spawn --background --prompt "<task>"',
+                "dispatch_plan": (
+                    "/dispatch-plan --plan <plan.md> --rules <rules.md> --model <model>"
+                ),
                 "resume": 'einherjar ask <session-ref> --prompt "<next task>"',
                 "result": "einherjar result <session-ref>",
                 "full_log": "einherjar result <session-ref> --full",

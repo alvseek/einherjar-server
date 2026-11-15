@@ -8,7 +8,7 @@ This repository ships two Python distributions. **`einherjar-server`** is this s
 
 ## What it serves
 
-- **The fleet layer.** Start with the read-only `help()` tool: it explains the service, how to install the current client wheel, local storage locations and the commands to run. It lists the available procedures even when a client does not show MCP initialization instructions. The five procedures from [agent-memory-fleet](https://github.com/alvseek/agent-memory-fleet) — `ask-agent`, `delegate-agent`, `spawn`, `load-fleet`, `setup-fleet` — are served as MCP prompts and readable through a `read_procedure` tool, and the fleet's templates are served as resources. An agent fetches a procedure mid-task; a person can still invoke it by name.
+- **The fleet layer.** Start with the read-only `help()` tool for setup, client installation and available procedures. Content from [agent-memory-fleet](https://github.com/alvseek/agent-memory-fleet) — `ask-agent`, `delegate-agent`, `spawn`, `dispatch-plan`, `load-fleet`, `setup-fleet` — is served as MCP prompts and through `read_procedure`; templates are resources. An agent fetches instructions mid-task; a person can invoke them by name.
 - **The client wheel.** `GET /v1/resources/cli` publicly describes the one CLI wheel bundled with this deployment — its real version, filename, size, SHA-256, download URL and exact install command — and `GET /v1/resources/cli/{filename}` serves those bytes. The MCP resource `resource://client/install`, tool name `client-install`, carries the same instructions. Nothing else on that path is reachable, a download needs no token, and a missing wheel is a `503` with the reason rather than a fabricated link.
 - **The session registry.** One `fleet_session` row per consult, keyed by `(user_id, machine, ref)`, written by the `einherjar` CLI that runs on the machine where the agent actually spawns.
 
@@ -66,18 +66,14 @@ renews its own token; signing in again is only needed once that stored credentia
 revoked.
 
 `ask <agent-name>` starts a new session and instructs it to awaken as that fleet agent.
-`delegate <agent-name>` does the same in the background. To start a fresh session without
-fleet awakening or an agent name, use `spawn`:
+To start a fresh session without fleet awakening or an agent name, use `spawn`:
 
 ```sh
 einherjar spawn --prompt "Review this diff"
-einherjar spawn --background --prompt "Review this diff"
 ```
 
-By default, `spawn` waits and prints the session reference followed by the reply.
-With `--background`, it returns the reference immediately; use `einherjar result <session-ref>`
-to read the captured output. Both forms support `--model` and `--theme`, and use the same
-platform selection and registry tracking as `ask` and `delegate`. Spawned sessions have no
+Both `ask` and `spawn` wait and return the session reference, envelope and final reply.
+They support `--model` and `--theme` and share platform selection and registry tracking. Spawned sessions have no
 fleet domain. Skipping awakening does not remove the platform's system instructions,
 project rules, or configured integrations, and does not prevent an agent from loading
 memory if its prompt or other instructions request it.
@@ -98,6 +94,18 @@ machine and platform.
 `einherjar sessions` lists recorded turns. A successful process exit marks a turn
 `completed`; it does not prove memory was saved. For an awakened fleet agent, request
 memory saving explicitly with `einherjar wrap-up <session-ref>`.
+
+For parallel work, follow `/delegate-agent`: run blocking `ask` or `spawn` in the invoking
+platform's background task that delivers a completion notification to the invoking session.
+Without that facility, remain blocking. CLI `delegate`, private `_turn`, and `spawn --background`
+are removed; migrate callers rather than detaching them through the shell. Existing logs and
+session references remain usable, and old clients on other machines need an explicit upgrade.
+
+`/dispatch-plan plan.md rules.md` supervises an approved implementation plan with extra rules
+and an explicit model. Rules can be prose or optional YAML. The invoking agent announces
+the resolved assignment, proceeds without reconfirmation, checks the result and continues the
+same worker until completion or a human gate. Omitting identity in the ask/delegate procedures
+selects plain spawn. An explicitly unmapped OpenCode model alias is refused rather than dropped.
 
 ## Development
 

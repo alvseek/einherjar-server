@@ -9,7 +9,6 @@ from __future__ import annotations
 
 import argparse
 import asyncio
-import json
 import os
 import subprocess
 import sys
@@ -28,6 +27,7 @@ from einherjar_cli.state.paths import config_dir
 from einherjar_cli.state.pending import PendingBuffer
 from einherjar_cli.transport.adapters import (
     Mode,
+    PlatformError,
     TurnRequest,
     create_session,
     detect_platform,
@@ -223,7 +223,11 @@ async def _ask(
 ) -> int:
     settings = settings or ClientSettings.load()
     buffer = buffer or PendingBuffer()
-    resolved_model = resolve_model(target.platform, model)
+    try:
+        resolved_model = resolve_model(target.platform, model)
+    except PlatformError as exc:
+        print(str(exc), file=err)
+        return 1
 
     try:
         await buffer.flush(_sender(registry))
@@ -377,7 +381,7 @@ def log_path(ref: str) -> Path:
 
 
 def result_path(ref: str) -> Path:
-    """The envelope describing the last turn: metadata, then that turn's reply."""
+    """A historical detached client's envelope; retained for read compatibility only."""
     return turn_dir() / f"{ref}.result.md"
 
 
@@ -435,114 +439,9 @@ def write_answer(text: str) -> None:
     buffer.flush()
 
 
-def _spawn_detached(payload: dict, ref: str) -> Path:
-    directory = turn_dir()
-    directory.mkdir(parents=True, exist_ok=True)
-    payload_path = directory / f"{ref}.json"
-    payload_path.write_text(json.dumps(payload), encoding="utf-8", newline="\n")
-    output_path = directory / f"{ref}.out"
-    with output_path.open("a", encoding="utf-8", newline="\n") as handle:
-        subprocess.Popen(
-            [sys.executable, "-m", "einherjar_cli", "_turn", str(payload_path)],
-            stdout=handle,
-            stderr=subprocess.STDOUT,
-            start_new_session=True,
-        )
-    return output_path
-
-
-async def delegate(
-    target_text: str,
-    *,
-    prompt: str,
-    theme: str = "",
-    model: str | None = None,
-    settings: ClientSettings | None = None,
-    registry: RegistryClient,
-    buffer: PendingBuffer | None = None,
-    project: str | None = None,
-    spawn=_spawn_detached,
-    out: TextIO = sys.stdout,
-    err: TextIO = sys.stderr,
-) -> int:
-    return await _delegate(
-        resolve_target(target_text),
-        domain_of(target_text),
-        prompt=prompt,
-        theme=theme,
-        model=model,
-        settings=settings,
-        registry=registry,
-        buffer=buffer,
-        project=project,
-        spawn=spawn,
-        out=out,
-        err=err,
-    )
-
-
-async def _delegate(
-    target: Target,
-    domain: str | None,
-    *,
-    prompt: str,
-    theme: str = "",
-    model: str | None = None,
-    settings: ClientSettings | None = None,
-    registry: RegistryClient,
-    buffer: PendingBuffer | None = None,
-    project: str | None = None,
-    spawn=_spawn_detached,
-    out: TextIO = sys.stdout,
-    err: TextIO = sys.stderr,
-) -> int:
-    settings = settings or ClientSettings.load()
-    buffer = buffer or PendingBuffer()
-    resolved_model = resolve_model(target.platform, model)
-
-    try:
-        await buffer.flush(_sender(registry))
-    except Exception as exc:  # noqa: BLE001
-        print(f"warning: pending rows were left untouched: {exc}", file=err)
-
-    row = _row(
-        target,
-        project=project or project_name(),
-        theme=theme,
-        domain=domain,
-    )
-    stored = await _record(registry, buffer, row, err)
-    text = _turn_prompt(target, row["domain"], prompt, settings)
-
-    started = datetime.now(timezone.utc).astimezone()
-    try:
-        await asyncio.to_thread(ensure_session, target, theme)
-    except Exception as exc:  # noqa: BLE001 - a ref that is not real must not be handed over
-        await _close_failed(registry, buffer, stored, row, err, str(exc))
-        print(f"the session could not be created: {exc}", file=err)
-        return 1
-
-    spawn(
-        {
-            "uuid": stored["uuid"] if stored else None,
-            "row": row,
-            "platform": target.platform,
-            "mode": target.mode,
-            "session_ref": target.ref,
-            "prompt": text,
-            "model": resolved_model,
-            "started": started.isoformat(),
-        },
-        target.ref,
-    )
-    print(target.ref, file=out)
-    return 0
-
-
 async def spawn(
     *,
     prompt: str,
-    background: bool = False,
     theme: str = "",
     model: str | None = None,
     settings: ClientSettings | None = None,
@@ -550,7 +449,6 @@ async def spawn(
     buffer: PendingBuffer | None = None,
     project: str | None = None,
     runner: Runner = run_turn,
-    spawn_detached=_spawn_detached,
     out: TextIO = sys.stdout,
     err: TextIO = sys.stderr,
 ) -> int:
@@ -568,8 +466,6 @@ async def spawn(
         out=out,
         err=err,
     )
-    if background:
-        return await _delegate(target, None, spawn=spawn_detached, **options)
     return await _ask(target, None, runner=runner, **options)
 
 
@@ -580,10 +476,10 @@ async def result(
     out: TextIO = sys.stdout,
     err: TextIO = sys.stderr,
 ) -> int:
-    """Print a turn's envelope, or its whole log.
+    """Read a historical envelope or the reply log.
 
-    A background turn writes the envelope; a foreground turn prints it and leaves the log, so a
-    foreground ref answers here rather than claiming nothing was recorded.
+    Current blocking turns print their envelope and append the log. A legacy envelope can predate
+    a newer blocking resume; callers must use that command's result to judge the current turn.
     """
     envelope_file = result_path(ref)
     log_file = log_path(ref)
@@ -596,92 +492,6 @@ async def result(
         return 1
     print(path.read_text(encoding="utf-8"), end="", file=out)
     return 0
-
-
-async def execute_turn(payload_path: Path) -> int:
-    """The detached half of ``delegate``: run the turn, then close its row."""
-    payload = json.loads(payload_path.read_text(encoding="utf-8"))
-    settings = ClientSettings.load()
-    store = TokenStore()
-    request = TurnRequest(
-        platform=payload["platform"],
-        mode=payload["mode"],
-        session_ref=payload["session_ref"],
-        prompt=payload["prompt"],
-        model=payload.get("model"),
-    )
-
-    def client() -> RegistryClient:
-        return RegistryClient(
-            base_url=settings.base_url,
-            store=store,
-            issuer=settings.issuer,
-            client_id=settings.client_id,
-            resource=settings.resource,
-        )
-
-    async def row_uuid() -> str | None:
-        """The row's uuid, creating it if the parent could not reach the registry."""
-        if payload.get("uuid"):
-            return payload["uuid"]
-        if not payload.get("row"):
-            return None
-        try:
-            async with client() as registry:
-                created = await registry.create_session(payload["row"])
-                return created["uuid"]
-        except RegistryError:
-            return None
-
-    try:
-        result_process = await asyncio.to_thread(run_turn, request)
-    except Exception as exc:  # noqa: BLE001 - the detached half must close its own row
-        uuid_ = await row_uuid()
-        if uuid_:
-            try:
-                async with client() as registry:
-                    await registry.update_session(uuid_, status="failed", error=str(exc)[-2000:])
-            except RegistryError:
-                pass
-        print(f"the turn could not start: {exc}", file=sys.stderr)
-        return 1
-
-    uuid_ = await row_uuid()
-    status = "completed" if result_process.returncode == 0 else "failed"
-    error_text = None
-    if status == "failed":
-        error_text = (result_process.stderr or "")[-2000:] or None
-    if uuid_:
-        try:
-            async with client() as registry:
-                await registry.update_session(uuid_, status=status, error=error_text)
-        except RegistryError:
-            pass
-
-    started_raw = payload.get("started")
-    started = (
-        datetime.fromisoformat(started_raw)
-        if started_raw
-        else datetime.now(timezone.utc).astimezone()
-    )
-    output = result_path(payload["session_ref"])
-    output.parent.mkdir(parents=True, exist_ok=True)
-    output.write_text(
-        envelope(
-            ref=payload["session_ref"],
-            platform=payload["platform"],
-            status=status,
-            answer=result_process.stdout or "",
-            output_path=log_path(payload["session_ref"]),
-            started=started,
-            finished=datetime.now(timezone.utc).astimezone(),
-            error=error_text,
-        ),
-        encoding="utf-8",
-        newline="\n",
-    )
-    write_answer(result_process.stdout or "")
-    return 0 if result_process.returncode == 0 else 1
 
 
 # --- the command line -----------------------------------------------------------------
@@ -699,19 +509,10 @@ def build_parser() -> argparse.ArgumentParser:
     ask_p.add_argument("--theme", default="")
     ask_p.add_argument("--model", default=None)
 
-    delegate_p = sub.add_parser("delegate", help="hand a task off in the background")
-    delegate_p.add_argument("target")
-    delegate_p.add_argument("--prompt", required=True)
-    delegate_p.add_argument("--theme", default="")
-    delegate_p.add_argument("--model", default=None)
-
     spawn_p = sub.add_parser("spawn", help="start a fresh session without fleet awakening")
     spawn_p.add_argument("--prompt", required=True)
     spawn_p.add_argument("--theme", default="")
     spawn_p.add_argument("--model", default=None)
-    spawn_p.add_argument(
-        "--background", action="store_true", help="return the session ref immediately"
-    )
 
     result_p = sub.add_parser("result", help="read a turn's envelope or its whole log")
     result_p.add_argument("ref")
@@ -729,8 +530,6 @@ def build_parser() -> argparse.ArgumentParser:
     install_p = sub.add_parser("install", help="wire the MCP server into a harness")
     install_p.add_argument("--harness", choices=["claude", "opencode"], required=True)
 
-    turn_p = sub.add_parser("_turn")
-    turn_p.add_argument("payload")
     return parser
 
 
@@ -755,9 +554,6 @@ async def _main(args: argparse.Namespace) -> int:
         print(install_for(args.harness))
         return 0
 
-    if args.command == "_turn":
-        return await execute_turn(Path(args.payload))
-
     if args.command == "result":
         return await result(args.ref, full=args.full)
 
@@ -771,7 +567,6 @@ async def _main(args: argparse.Namespace) -> int:
         if args.command == "spawn":
             return await spawn(
                 prompt=args.prompt,
-                background=args.background,
                 theme=args.theme,
                 model=args.model,
                 settings=settings,
@@ -779,15 +574,6 @@ async def _main(args: argparse.Namespace) -> int:
             )
         if args.command == "ask":
             return await ask(
-                args.target,
-                prompt=args.prompt,
-                theme=args.theme,
-                model=args.model,
-                settings=settings,
-                registry=registry,
-            )
-        if args.command == "delegate":
-            return await delegate(
                 args.target,
                 prompt=args.prompt,
                 theme=args.theme,

@@ -1,4 +1,4 @@
-"""The served content: five procedures, one template, and the equality that keeps them honest."""
+"""The served content and the equality that keeps prompt/tool delivery honest."""
 
 from __future__ import annotations
 
@@ -15,7 +15,7 @@ from einherjar.business.tenant import TenantResolver
 from einherjar.content.loader import ContentLoader
 from einherjar.data.repository import FleetRepository
 
-PROCEDURES = {"ask-agent", "delegate-agent", "load-fleet", "setup-fleet", "spawn"}
+PROCEDURES = {"ask-agent", "delegate-agent", "load-fleet", "setup-fleet", "spawn", "dispatch-plan"}
 TEMPLATES = {"fleet-agents-template"}
 
 
@@ -41,6 +41,7 @@ def test_served_text_equals_the_compiled_output(
             "--out",
             str(out),
             "--quiet",
+            "--strict",
         ],
         check=True,
         capture_output=True,
@@ -82,6 +83,11 @@ async def test_prompts_prompts_and_tools_are_the_same_content(loader: ContentLoa
         resource_listing = await client.call_tool("list_resources")
         template = await client.call_tool("read_resource", {"name": "fleet-agents-template"})
         missing_resource = await client.call_tool("read_resource", {"name": "nope"})
+        arguments = "--plan plan.md --rules rules.md --model provider/model"
+        dispatched = await client.call_tool(
+            "read_procedure", {"name": "dispatch-plan", "argument": arguments}
+        )
+        native_dispatch = await client.get_prompt("dispatch-plan", {"argument": arguments})
 
     assert {p.name for p in prompts} == PROCEDURES
     # The fleet's templates plus the one resource that is not fleet content: the client install.
@@ -93,6 +99,9 @@ async def test_prompts_prompts_and_tools_are_the_same_content(loader: ContentLoa
     assert missing.data["served"] is False
     assert template.data["content"] == loader.get_resource("fleet-agents-template")
     assert missing_resource.data["served"] is False
+    assert dispatched.data["content"] == loader.get_procedure("dispatch-plan", arguments)
+    assert "$ARGUMENTS" not in dispatched.data["content"]
+    assert native_dispatch.messages[0].content.text == dispatched.data["content"]
 
     procedure_rows = {row["name"]: row for row in procedure_listing.data}
     for prompt in prompts:

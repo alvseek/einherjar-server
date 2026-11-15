@@ -106,6 +106,13 @@ async def test_help_explains_the_service_and_reuses_the_live_install_guide(tmp_p
     assert "multiline" in help_result["usage"]
     assert help_result["commands"]["resume"].startswith("einherjar ask <session-ref>")
     assert help_result["commands"]["full_log"] == "einherjar result <session-ref> --full"
+    assert "spawn_background" not in help_result["commands"]
+    assert "completion-aware" in help_result["commands"]["delegate"]
+    assert help_result["commands"]["dispatch_plan"].startswith("/dispatch-plan ")
+    assert not any(
+        value.startswith("einherjar delegate ") or "--background" in value
+        for value in help_result["commands"].values()
+    )
 
 
 @pytest.mark.parametrize("artifact_present", [False, True])

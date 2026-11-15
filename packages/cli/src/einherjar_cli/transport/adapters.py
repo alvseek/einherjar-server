@@ -1,8 +1,7 @@
 """The two transport arms, ported from the bash fleet with their argv asserted one for one.
 
-A turn is a child process in the project directory: prompt in, final text on stdout. Detachment
-belongs to the caller, not to the platform, so neither arm knows about background — that is what
-keeps a delegated turn identical on both.
+A turn is a blocking child process in the project directory: prompt in, final text on stdout.
+Parallel execution and completion notification belong to the invoking platform's task tool.
 """
 
 from __future__ import annotations
@@ -70,15 +69,23 @@ def resolve_model(
 
     Claude takes an alias directly, and its own default is a usable model, so naming none leaves the
     flag off. OpenCode takes ``provider/model``: a bare alias is looked up in
-    ``EINHERJAR_MODEL_<ALIAS>`` rather than inventing a provider here, an unmapped alias yields no
-    flag instead of a guessed one, and no model at all yields the fleet's own.
+    ``EINHERJAR_MODEL_<ALIAS>`` rather than inventing a provider here. An unmapped alias is refused,
+    and no model at all yields the fleet's own.
     """
-    if not model:
+    if model is None:
         return OPENCODE_DEFAULT_MODEL if platform == "opencode" else None
+    if not model.strip():
+        raise PlatformError("explicit model is blank: pass a model value or omit --model")
     if platform == "opencode" and "/" not in model:
         env = os.environ if env is None else env
         variable = "EINHERJAR_MODEL_" + model.upper().replace("-", "_")
-        return env.get(variable) or None
+        resolved = env.get(variable, "").strip()
+        if not resolved or "/" not in resolved:
+            raise PlatformError(
+                f"cannot resolve explicit model {model!r}: set {variable} to provider/model "
+                "or pass a qualified provider/model directly"
+            )
+        return resolved
     return model
 
 

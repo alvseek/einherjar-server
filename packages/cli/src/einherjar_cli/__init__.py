@@ -4,4 +4,4 @@ A separate distribution from the server on purpose. Nothing here imports the ser
 because a machine that only spawns agents needs `httpx` and a keychain, not a database driver.
 """
 
-__version__ = "0.1.6"
+__version__ = "0.2.0"

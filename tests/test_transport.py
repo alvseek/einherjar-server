@@ -70,8 +70,20 @@ def test_model_resolution_is_per_platform() -> None:
     assert resolve_model("opencode", "commandcode/x", {}) == "commandcode/x"
     env = {"EINHERJAR_MODEL_SONNET": "commandcode/claude-sonnet-5-5"}
     assert resolve_model("opencode", "sonnet", env) == "commandcode/claude-sonnet-5-5"
-    # An unmapped alias asks for the platform default rather than a guessed provider.
-    assert resolve_model("opencode", "sonnet", {}) is None
+
+
+@pytest.mark.parametrize("mapping", [None, "", " ", "unqualified"])
+def test_explicit_unresolved_model_is_refused(mapping: str | None) -> None:
+    env = {} if mapping is None else {"EINHERJAR_MODEL_SONNET": mapping}
+    with pytest.raises(PlatformError, match="EINHERJAR_MODEL_SONNET"):
+        resolve_model("opencode", "sonnet", env)
+
+
+@pytest.mark.parametrize("platform", ["opencode", "claude"])
+@pytest.mark.parametrize("model", ["", " ", "\t"])
+def test_explicit_blank_model_does_not_default(platform: str, model: str) -> None:
+    with pytest.raises(PlatformError, match="blank"):
+        resolve_model(platform, model, {})
 
 
 def test_opencode_names_the_fleet_model_when_none_is_given() -> None:

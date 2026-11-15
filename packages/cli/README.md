@@ -40,23 +40,29 @@ once that stored credential expires or is revoked.
 ```sh
 einherjar login                                  # sign this machine in, once
 einherjar ask <agent-or-ref> --prompt "..."      # consult a teammate and wait
-einherjar delegate <agent-or-ref> --prompt "..." # hand the task off in the background
 einherjar spawn --prompt "..."                   # start a fresh session, no fleet awakening
-einherjar spawn --background --prompt "..."      # the same, returning the ref immediately
-einherjar result <session-ref>                   # read a delegated turn's output
+einherjar result <session-ref>                   # read historical envelope or reply log
 einherjar sessions [--project P] [--status S]    # list recorded consults
 einherjar wrap-up <session-ref>                  # ask an awakened agent to save its memory
 einherjar install --harness opencode             # register the served MCP server in a harness
 einherjar install --harness claude
 ```
 
-`ask` and `delegate` take an agent name — which awakens as that agent — or a session reference,
+`ask` takes an agent name — which awakens as that agent — or a session reference,
 which resumes that conversation without an awakening. `spawn` takes no target and no awakening.
 OpenCode references start with `ses_`; Claude Code references are UUIDs. Both forms accept
 `--model` and `--theme`.
 
 A session reference can be continued later with `einherjar ask <ref> --prompt "..."`, on the
 machine and platform that own that session history.
+
+Both commands are blocking. For parallel work, the invoking agent runs one through its platform's
+completion-aware background shell task and receives its result there. Without that facility, stay
+blocking. CLI `delegate`, `spawn --background` and private `_turn` are removed; update scripts to
+use blocking calls, never independent shell detachment. The `/delegate-agent` procedure supplies
+the platform-specific instructions; `/dispatch-plan` adds supervised approved-plan execution.
+An omitted procedure identity selects spawn. A supplied OpenCode alias must have a qualified
+`EINHERJAR_MODEL_<ALIAS>` mapping or is refused, not silently replaced by a default.
 
 ## Local state
 
@@ -67,7 +73,10 @@ Everything below `EINHERJAR_CONFIG_DIR` (default: the platform's per-user config
   hostname, because the hostname changes and can collide.
 - `pending.jsonl` — rows that could not reach the registry, replayed on the next call.
 - `credentials.json` — only when the OS keychain is unavailable.
-- `turns/<session-ref>.json` and `.out` — a background turn's payload and captured output.
+- `turns/<session-ref>.out` — accumulated replies from blocking turns.
+- Historical `.result.md` envelopes and `.json` payloads from old clients are not deleted.
+  `result` prefers an old envelope when present; after a blocking resume it may be stale.
+  Use the current command result for that turn, or `result <ref> --full` for the reply log.
 
 ## Configuration
 

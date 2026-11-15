@@ -152,10 +152,18 @@ def test_the_server_module_entrypoint_starts_only_the_server() -> None:
     assert "einherjar_cli" not in constants
 
 
-def test_a_detached_turn_starts_the_client_module() -> None:
+def test_the_client_has_no_detached_execution_entrypoint() -> None:
     source = (CLIENT_SRC / "cli.py").read_text(encoding="utf-8")
-    assert '"-m", "einherjar_cli", "_turn"' in source
-    assert '"-m", "einherjar", "_turn"' not in source
+    tree = ast.parse(source)
+    functions = {
+        node.name
+        for node in ast.walk(tree)
+        if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef))
+    }
+    assert not functions & {"delegate", "_delegate", "_spawn_detached", "execute_turn"}
+    assert "subprocess.Popen" not in source
+    assert "start_new_session" not in source
+    assert '"_turn"' not in source
 
 
 def test_both_packages_carry_the_licence_verbatim() -> None:
@@ -177,8 +185,10 @@ def _venv_python(venv: Path) -> Path:
 
 
 def _venv_script(venv: Path, name: str) -> Path:
-    return venv / ("Scripts" if os.name == "nt" else "bin") / (
-        f"{name}.exe" if os.name == "nt" else name
+    return (
+        venv
+        / ("Scripts" if os.name == "nt" else "bin")
+        / (f"{name}.exe" if os.name == "nt" else name)
     )
 
 
@@ -247,17 +257,31 @@ def test_both_wheels_install_into_clean_environments(tmp_path: Path) -> None:
     assert _venv_script(server_env, "einherjar-server").exists()
     assert not _venv_script(server_env, "einherjar").exists()
 
-    # The module entry points the deployment and the detached turn rely on.
-    assert _run(
-        [str(_venv_python(server_env)), "-c", "import einherjar; print(einherjar.__version__)"]
-    ).stdout.strip() == "0.1.6"
-    assert _run(
-        [
-            str(_venv_python(client_env)),
-            "-c",
-            "import einherjar_cli, einherjar_cli.__main__; print(einherjar_cli.__version__)",
-        ]
-    ).stdout.strip() == "0.1.6"
+    # Compare the installed module versions with each distribution's release metadata.
+    assert (
+        _run(
+            [str(_venv_python(server_env)), "-c", "import einherjar; print(einherjar.__version__)"]
+        ).stdout.strip()
+        == _project(ROOT / "pyproject.toml")["project"]["version"]
+    )
+    assert (
+        _run(
+            [
+                str(_venv_python(client_env)),
+                "-c",
+                "import einherjar_cli, einherjar_cli.__main__; print(einherjar_cli.__version__)",
+            ]
+        ).stdout.strip()
+        == _client_project()["project"]["version"]
+    )
+    for argv in (
+        ["delegate", "test", "--prompt", "do not execute"],
+        ["spawn", "--background", "--prompt", "do not execute"],
+        ["_turn", "missing.json"],
+    ):
+        rejected = _run([str(_venv_script(client_env, "einherjar")), *argv], check=False)
+        assert rejected.returncode == 2, rejected.stderr
+    assert "delegate" not in help_text.stdout
 
 
 @pytest.mark.skipif(
