@@ -138,13 +138,11 @@ def test_resource_description_uses_the_templates_own_introduction(tmp_path: Path
     [
         None,
         '--plan "plans/change.md" --rules "guidance/team.md" --model provider/model',
-        '--plan "plans/change.md" --rules "guidance/team.md" --model provider/model '
-        '--worktree "../feature work" --branch feature/change',
-        '--plan "plans/change.md" --rules "guidance/team.md" --model provider/model '
-        '--worktree "../feature work" --branch feature/change --base HEAD',
+        '--plan "plans/change.md" --model provider/model --agent software-architect',
+        '--plan "plans/change.md" --rules "guidance/team.md"',
     ],
 )
-async def test_dispatch_workspace_arguments_reach_prompt_and_tool(
+async def test_dispatch_arguments_and_delegation_boundary_reach_prompt_and_tool(
     loader: ContentLoader, arguments: str | None
 ) -> None:
     mcp = build_mcp(
@@ -162,5 +160,10 @@ async def test_dispatch_workspace_arguments_reach_prompt_and_tool(
         )
     expected = loader.get_procedure("dispatch-plan", arguments)
     assert tool.data["content"] == prompt.messages[0].content.text == expected
-    assert "initial launch and every continuation" in expected
-    assert "never a checkout copy" in expected
+    assert "plan's originating wizard procedure" in expected
+    assert "fleet's `ask-agent` procedure" in expected
+    assert "Do not pass them on as instructions for the worker to delegate again" in expected
+    assert (
+        "Further delegation requires an explicit instruction permitting it for that worker"
+        in expected
+    )
