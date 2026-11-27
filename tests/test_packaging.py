@@ -126,7 +126,7 @@ def test_the_client_declares_only_client_dependencies() -> None:
 def test_the_server_declares_no_client_dependency() -> None:
     server = _project(ROOT / "pyproject.toml")["project"]
     names = _dependency_names(server["dependencies"])
-    assert names == {"fastapi", "fastmcp", "psycopg", "uvicorn"}
+    assert names == {"fastapi", "fastmcp", "psycopg", "uvicorn", "valaskjalf-workspace-access"}
     assert "keyring" not in names
     assert "httpx" not in names
 
@@ -134,7 +134,13 @@ def test_the_server_declares_no_client_dependency() -> None:
 def test_the_client_is_a_workspace_development_dependency_not_a_runtime_one() -> None:
     server = _project(ROOT / "pyproject.toml")
     assert server["tool"]["uv"]["workspace"]["members"] == ["packages/cli"]
-    assert server["tool"]["uv"]["sources"] == {"einherjar": {"workspace": True}}
+    assert server["tool"]["uv"]["sources"] == {
+        "einherjar": {"workspace": True},
+        "valaskjalf-workspace-access": {
+            "git": "https://github.com/alvseek/valaskjalf.git",
+            "rev": "f95da7df01d9d3883df59174f7fc0b0de68b506a",
+        },
+    }
     assert "einherjar" in server["dependency-groups"]["dev"]
     assert "einherjar" not in _dependency_names(server["project"]["dependencies"])
 
@@ -235,15 +241,26 @@ def test_both_wheels_install_into_clean_environments(tmp_path: Path) -> None:
     assert client_requires == {"httpx", "keyring"}
     assert client_scripts == {"einherjar": "einherjar_cli.cli:main"}
     assert server_scripts == {"einherjar-server": "einherjar.__main__:main"}
-    assert server_requires == {"fastapi", "fastmcp", "psycopg", "uvicorn"}
+    assert server_requires == {
+        "fastapi", "fastmcp", "psycopg", "uvicorn", "valaskjalf-workspace-access"
+    }
 
     client_env, server_env = tmp_path / "client-env", tmp_path / "server-env"
     for venv, wheel in ((client_env, client_wheel), (server_env, server_wheel)):
         _run(["uv", "venv", str(venv), "--python", "3.12"])
-        _run(["uv", "pip", "install", "--python", str(_venv_python(venv)), str(wheel)])
+        install = ["uv", "pip", "install", "--python", str(_venv_python(venv)), str(wheel)]
+        if wheel == server_wheel:
+            install.append(
+                "valaskjalf-workspace-access[postgres] @ "
+                "git+https://github.com/alvseek/valaskjalf.git@"
+                "f95da7df01d9d3883df59174f7fc0b0de68b506a"
+            )
+        _run(install)
 
     assert _installed(client_env, "einherjar_cli.cli")
-    for server_module in ("einherjar", "fastapi", "fastmcp", "psycopg", "uvicorn"):
+    for server_module in (
+        "einherjar", "fastapi", "fastmcp", "psycopg", "uvicorn", "valaskjalf_workspace_access"
+    ):
         assert not _installed(client_env, server_module), server_module
     assert _venv_script(client_env, "einherjar").exists()
     assert not _venv_script(client_env, "einherjar-server").exists()

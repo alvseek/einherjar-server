@@ -7,6 +7,7 @@ import uuid
 
 import pytest
 
+from einherjar.business.tenant import TenantResolver
 from einherjar.data.repository import FleetRepository
 
 PG = os.getenv("EINHERJAR_PG_TEST_URL")
@@ -27,13 +28,17 @@ def _ref() -> str:
     return f"ses_{uuid.uuid4().hex}"
 
 
+def _user() -> str:
+    return TenantResolver(db_url=PG).resolve("https://test.example", uuid.uuid4().hex)
+
+
 def test_schema_applies_twice_without_error(repo: FleetRepository) -> None:
     repo.ensure_schema()
     FleetRepository(db_url=PG).ensure_schema()  # a second process sees the marker
 
 
 def test_the_same_key_is_one_row(repo: FleetRepository) -> None:
-    user = f"user-{uuid.uuid4().hex}"
+    user = _user()
     ref = _ref()
 
     first = repo.upsert_session(
@@ -64,8 +69,8 @@ def test_a_replayed_create_does_not_reopen_a_finished_row(repo: FleetRepository)
 
 
 def test_a_foreign_row_is_invisible(repo: FleetRepository) -> None:
-    owner = f"user-{uuid.uuid4().hex}"
-    stranger = f"user-{uuid.uuid4().hex}"
+    owner = _user()
+    stranger = _user()
     row = repo.upsert_session(
         user_id=owner, machine="machine-a", session_ref=_ref(), platform="opencode"
     )

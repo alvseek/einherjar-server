@@ -21,7 +21,9 @@ from pathlib import Path
 from typing import Annotated, Any, Callable
 
 from fastmcp import FastMCP
+from fastmcp.exceptions import ToolError
 from pydantic import Field
+from valaskjalf_workspace_access import WorkspaceAccessDenied
 
 from einherjar.business.queries import FleetQueries
 from einherjar.business.tenant import TenantResolver
@@ -286,7 +288,7 @@ def build_mcp(
                 "is removed; use a platform task around blocking ask/spawn, or remain blocking. "
                 "Use read_procedure(name) "
                 "and follow the returned procedure; read_resource(name) reads its templates. "
-                "fleet_sessions and fleet_session only read your tenant's recorded consults. "
+                "fleet_sessions and fleet_session read the selected authorized workspace. "
                 "A completed process does not prove memory was saved: request wrap-up explicitly "
                 "for an awakened fleet agent. References resume on the originating machine and "
                 "platform. For long or multiline tasks, put the task in a file and name it in a "
@@ -314,7 +316,7 @@ def build_mcp(
     if content.available():
         _register_content(mcp, content, install_text)
 
-    @mcp.tool(title="The caller's recorded consults", annotations=_READ)
+    @mcp.tool(title="The workspace's recorded consults", annotations=_READ)
     def fleet_sessions(
         project: Annotated[
             str | None,
@@ -331,7 +333,7 @@ def build_mcp(
             ),
         ] = None,
     ) -> list[dict]:
-        """List the authenticated tenant's recorded sessions, newest created first.
+        """List the selected authorized workspace's recorded sessions, newest created first.
 
         Optional project and status filters are exact matches combined with AND. Returns
         records with UUID, platform session reference, machine, project, domain, theme, status,
@@ -339,11 +341,14 @@ def build_mcp(
         Use a row's uuid with fleet_session. This does not poll a process or return its reply/log;
         use the local CLI for results. Recorded status is not a live health check.
         """
-        return queries.list_sessions(
-            user_id=resolver.current_user_id(),
-            project=project,
-            status=status,
-        )
+        try:
+            return queries.list_sessions(
+                user_id=resolver.current_user_id(),
+                project=project,
+                status=status,
+            )
+        except WorkspaceAccessDenied as exc:
+            raise ToolError(str(exc)) from exc
 
     @mcp.tool(title="One recorded consult", annotations=_READ)
     def fleet_session(
@@ -355,12 +360,15 @@ def build_mcp(
             ),
         ],
     ) -> dict | None:
-        """Read one session registry record belonging to the authenticated tenant.
+        """Read one session registry record belonging to the selected authorized workspace.
 
         Returns identifiers, machine, platform, project, domain, theme, status, timestamps and
-        error details. Returns null when unknown or owned by another tenant. Does not resume or
+        error details. Returns null when unknown or outside that workspace. Does not resume or
         poll the agent, or retrieve its answer/log; use the CLI on the originating machine.
         """
-        return queries.get_session(user_id=resolver.current_user_id(), uuid=uuid)
+        try:
+            return queries.get_session(user_id=resolver.current_user_id(), uuid=uuid)
+        except WorkspaceAccessDenied as exc:
+            raise ToolError(str(exc)) from exc
 
     return mcp

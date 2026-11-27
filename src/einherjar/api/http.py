@@ -12,6 +12,7 @@ from typing import Literal
 
 from fastapi import APIRouter, Depends, HTTPException, Request
 from pydantic import BaseModel, Field
+from valaskjalf_workspace_access import WorkspaceAccessDenied
 
 from einherjar.auth.verifier import verify_bearer
 
@@ -96,12 +97,15 @@ async def list_sessions(
     status: str | None = None,
     user_id: str = Depends(require_caller),
 ) -> list[dict]:
-    """The caller's recorded consults, newest first. Read-only, tenant-scoped."""
+    """The selected authorized workspace's consults, newest first."""
     if status is not None and status not in ("active", "completed", "failed"):
         raise HTTPException(status_code=422, detail=f"unknown status {status!r}")
-    rows = request.app.state.repository.list_sessions(
-        user_id=user_id, project=project, status=status
-    )
+    try:
+        rows = request.app.state.repository.list_sessions(
+            user_id=user_id, project=project, status=status
+        )
+    except WorkspaceAccessDenied as exc:
+        raise HTTPException(status_code=403, detail=str(exc)) from exc
     return [asdict(row) for row in rows]
 
 
@@ -132,7 +136,10 @@ async def read_session(
     user_id: str = Depends(require_caller),
 ) -> dict:
     """One row, for the flush and for diagnosis."""
-    session = request.app.state.repository.get_session(uuid=session_uuid, user_id=user_id)
+    try:
+        session = request.app.state.repository.get_session(uuid=session_uuid, user_id=user_id)
+    except WorkspaceAccessDenied as exc:
+        raise HTTPException(status_code=403, detail=str(exc)) from exc
     if session is None:
         raise HTTPException(status_code=404, detail="no such session for this caller")
     return asdict(session)
