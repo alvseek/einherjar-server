@@ -42,9 +42,8 @@ jobs:
       - name: Install deps
         run: uv sync
 
-      # Munnin owns these tables and the service only reads them; a fresh database in CI has
-      # neither, so create the same shape here or the tenant tests skip and prove nothing.
-      - name: Create the memory tables the service reads
+      # Munnin owns the schema. Supply the identity and sharing tables used by fleet tests.
+      - name: Prepare workspace access schema
         run: |
           uv run python - <<'PY'
           import os
@@ -58,7 +57,15 @@ jobs:
               )
               cur.execute(
                   "CREATE TABLE IF NOT EXISTS account ("
-                  "user_id text PRIMARY KEY, display_name text, email text, created_date text)"
+                  "user_id text PRIMARY KEY, display_name text, email text, created_date text, "
+                  "active_user_id text)"
+              )
+              cur.execute(
+                  "CREATE TABLE IF NOT EXISTS tenant_access ("
+                  "tenant_user_id text NOT NULL REFERENCES account(user_id), "
+                  "member_user_id text NOT NULL REFERENCES account(user_id), "
+                  "granted_date text NOT NULL, revoked_date text, "
+                  "PRIMARY KEY (tenant_user_id, member_user_id))"
               )
           PY
 
