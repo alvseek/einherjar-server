@@ -14,7 +14,7 @@ dependencies = [
     "fastmcp>=3.4.6",
     "psycopg[binary,pool]>=3.3.6",
     "uvicorn>=0.52.1",
-    "valaskjalf-workspace-access[postgres]",
+    "valaskjalf-workspace-access[postgres] @ git+https://github.com/alvseek/valaskjalf.git@f95da7df01d9d3883df59174f7fc0b0de68b506a",
 ]
 
 [project.scripts]
@@ -37,7 +37,6 @@ members = ["packages/cli"]
 
 [tool.uv.sources]
 einherjar = { workspace = true }
-valaskjalf-workspace-access = { git = "https://github.com/alvseek/valaskjalf.git", rev = "f95da7df01d9d3883df59174f7fc0b0de68b506a" }
 
 [dependency-groups]
 dev = [
