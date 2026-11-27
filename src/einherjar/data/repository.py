@@ -20,6 +20,7 @@ from uuid import uuid4
 
 import psycopg
 from psycopg.rows import dict_row
+from valaskjalf_workspace_access import PostgresWorkspaceAccess
 
 #: The lifecycle a row can be in. A terminal status is never downgraded by a replayed create.
 STATUSES = ("active", "completed", "failed")
@@ -102,6 +103,7 @@ class FleetRepository:
 
     def __init__(self, *, db_url: str) -> None:
         self._db_url = db_url
+        self._workspace_access = PostgresWorkspaceAccess(db_url)
         self._ready = False
         self._lock = threading.Lock()
 
@@ -216,9 +218,11 @@ class FleetRepository:
     # --- reads ----------------------------------------------------------------------
 
     def get_session(self, *, uuid: str, user_id: str) -> FleetSession | None:
+        workspace_id = self._workspace_access.resolve_workspace(user_id).workspace_user_id
         with self._connect() as conn, conn.cursor() as cur:
             cur.execute(
-                "SELECT * FROM fleet_session WHERE uuid = %s AND user_id = %s", (uuid, user_id)
+                "SELECT * FROM fleet_session WHERE uuid = %s AND user_id = %s",
+                (uuid, workspace_id),
             )
             row = cur.fetchone()
         return _row_to_session(row) if row is not None else None
@@ -231,7 +235,8 @@ class FleetRepository:
         status: str | None = None,
     ) -> list[FleetSession]:
         where = ["user_id = %s"]
-        params: list[Any] = [user_id]
+        workspace_id = self._workspace_access.resolve_workspace(user_id).workspace_user_id
+        params: list[Any] = [workspace_id]
         if project is not None:
             where.append("project = %s")
             params.append(project)

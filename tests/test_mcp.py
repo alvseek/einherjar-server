@@ -71,8 +71,9 @@ async def test_the_mcp_face_exposes_reads_and_content_only(tmp_path) -> None:
 
 def test_queries_never_cross_a_tenant(repository: FleetRepository) -> None:
     queries = FleetQueries(repository)
-    mine = f"user-{uuid.uuid4().hex}"
-    theirs = f"user-{uuid.uuid4().hex}"
+    resolver = TenantResolver(db_url=repository._db_url)
+    mine = resolver.resolve("https://test.example", uuid.uuid4().hex)
+    theirs = resolver.resolve("https://test.example", uuid.uuid4().hex)
 
     row = repository.upsert_session(
         user_id=mine, machine="machine-a", session_ref=f"ses_{uuid.uuid4().hex}", platform="claude"
